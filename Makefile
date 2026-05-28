@@ -163,6 +163,10 @@ PI4_FINAL_GATES_GUARD ?= $(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)
 PI4_HOST_FINAL_GATES_GUARD ?= $(BUILD_DIR)/pi4-host-final-gates-single-artifact.txt
 PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE := $(PI4_BUILD_DIR)/local-qemu-image.sha256.before
 PI4_LOCAL_QEMU_IMAGE_SHA_AFTER := $(PI4_BUILD_DIR)/local-qemu-image.sha256.after
+PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE := $(PI4_BUILD_DIR)/local-qemu-doom-image.sha256.before
+PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER := $(PI4_BUILD_DIR)/local-qemu-doom-image.sha256.after
+PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE := $(PI4_BUILD_DIR)/local-qemu-quake-image.sha256.before
+PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER := $(PI4_BUILD_DIR)/local-qemu-quake-image.sha256.after
 PI4_BOOT_ASM_SRCS := boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S
 PI4_USER_ASM_SRCS := user/pi4_crt0.S user/pi4_runtime.S user/pi4_abi_probe.S user/pi4_launcher.S user/pi4_launcher_assets.S
 PI4_DOOM_OPTIONAL_ASM_SRCS := $(wildcard doom_port/pi4_engine_start.S)
@@ -310,7 +314,7 @@ IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-quake-engine-app pi4-engine-apps-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-app-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-launcher-framebuffer-capture pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-app-catalog-contract-check x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-quake-engine-app pi4-engine-apps-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-app-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-launcher-framebuffer-capture pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 .PHONY: pi4-hw-equivalent-final-gates-policy pi4-remote-visible-play-help
 
 all: $(IMAGE)
@@ -555,6 +559,79 @@ x86-image-builder-wiring-check:
 	done; \
 	printf "x86 image builder wiring OK: BIOS image installs /SYSTEM plus /APPS app files only.\n"
 
+x86-app-catalog-contract-check: $(USER_LAUNCHER_ELF)
+	@set -e; \
+	index="$(APP_INDEX_TXT)"; \
+	doom_manifest="$(APP_DOOM_MANIFEST_TXT)"; \
+	quake_manifest="$(APP_QUAKE_MANIFEST_TXT)"; \
+	launcher_src="$(USER_LAUNCHER_ASM_SRC)"; \
+	launcher_elf="$(USER_LAUNCHER_ELF)"; \
+	for file in "$$index" "$$doom_manifest" "$$quake_manifest" "$$launcher_src" "$$launcher_elf"; do \
+		test -s "$$file" || { printf "x86 app catalog contract missing required file: %s\n" "$$file" >&2; exit 1; }; \
+	done; \
+	require_line() { \
+		file="$$1"; \
+		line="$$2"; \
+		grep -F -x -q "$$line" "$$file" || { \
+			printf "x86 app catalog contract missing %s in %s\n" "$$line" "$$file" >&2; \
+			exit 1; \
+		}; \
+	}; \
+	require_src() { \
+		grep -F -q "$$1" "$$launcher_src" || { \
+			printf "x86 launcher source no longer consumes app catalog contract string: %s\n" "$$1" >&2; \
+			exit 1; \
+		}; \
+	}; \
+	require_elf_string() { \
+		LC_ALL=C strings "$$launcher_elf" | grep -F -x -q "$$1" || { \
+			printf "x86 launcher ELF missing app catalog contract string: %s\n" "$$1" >&2; \
+			exit 1; \
+		}; \
+	}; \
+	require_line "$$index" "schema=vibe-os-app-index-v1"; \
+	require_line "$$index" "model=manifest-vfs-exec"; \
+	require_line "$$index" "discovery=app-index-manifest-paths"; \
+	require_line "$$index" "app_count=2"; \
+	require_line "$$index" "app.0.id=doom"; \
+	require_line "$$index" "app.0.manifest=/APPS/DOOM/APP.TXT"; \
+	require_line "$$index" "app.1.id=quake"; \
+	require_line "$$index" "app.1.manifest=/APPS/QUAKE/APP.TXT"; \
+	require_line "$$doom_manifest" "schema=vibe-os-app-v1"; \
+	require_line "$$doom_manifest" "id=doom"; \
+	require_line "$$doom_manifest" "name=DOOM"; \
+	require_line "$$doom_manifest" "exec=/APPS/DOOM/APP.ELF"; \
+	require_line "$$doom_manifest" "asset=/DOOM1.WAD"; \
+	require_line "$$doom_manifest" "icon=wad:TITLEPIC"; \
+	require_line "$$doom_manifest" "input=keyboard,mouse"; \
+	require_line "$$quake_manifest" "schema=vibe-os-app-v1"; \
+	require_line "$$quake_manifest" "id=quake"; \
+	require_line "$$quake_manifest" "name=Quake"; \
+	require_line "$$quake_manifest" "exec=/APPS/QUAKE/APP.ELF"; \
+	require_line "$$quake_manifest" "asset=/ID1/PAK0.PAK"; \
+	require_line "$$quake_manifest" "icon=pak:gfx/conback.lmp"; \
+	require_line "$$quake_manifest" "input=keyboard,mouse"; \
+	require_src 'launcher_index_path db `/APPS/INDEX.TXT`, 0'; \
+	require_src 'launcher_app_count_key db `app_count=`, 0'; \
+	require_src 'launcher_app0_manifest_key db `app.0.manifest=`, 0'; \
+	require_src 'launcher_app1_manifest_key db `app.1.manifest=`, 0'; \
+	require_src 'launcher_exec_key db `exec=`, 0'; \
+	require_src 'call launcher_check_elf_magic'; \
+	require_elf_string "/APPS/INDEX.TXT"; \
+	require_elf_string "app_count="; \
+	require_elf_string "app.0.manifest="; \
+	require_elf_string "app.1.manifest="; \
+	require_elf_string "exec="; \
+	if LC_ALL=C strings "$$launcher_elf" | grep -F -x -q "/APPS/DOOM/APP.ELF"; then \
+		printf "x86 launcher ELF must discover Doom exec from APP.TXT, not embed /APPS/DOOM/APP.ELF\n" >&2; \
+		exit 1; \
+	fi; \
+	if LC_ALL=C strings "$$launcher_elf" | grep -F -x -q "/APPS/QUAKE/APP.ELF"; then \
+		printf "x86 launcher ELF must discover Quake exec from APP.TXT, not embed /APPS/QUAKE/APP.ELF\n" >&2; \
+		exit 1; \
+	fi; \
+	printf "x86 app catalog contract OK: shared /APPS index/manifests match the x86 launcher runtime discovery path.\n"
+
 x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 	@set -e; \
 	dryrun="$(BUILD_DIR)/x86-uefi-image-builder-dryrun.txt"; \
@@ -607,7 +684,7 @@ x86-pi4-real-assets-isolation-check:
 x86-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" VIBE_STATUS_CHECK_SCOPE=x86 tools/test_vibe_status_check.sh
 
-x86-preservation-host-check: x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check image-builder-inspect uefi-loader-object doom-link quake-link x86-status-proof-check
+x86-preservation-host-check: x86-app-catalog-contract-check x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check image-builder-inspect uefi-loader-object doom-link quake-link x86-status-proof-check
 	@printf "x86 preservation host check OK: BIOS image-builder, UEFI image wiring, UEFI loader object, Doom app, Quake app, and status-proof validators are wired without local VM.\n"
 
 $(UEFI_LOADER_OBJ): boot/uefi/loader.asm | $(UEFI_BUILD_DIR)
@@ -1891,12 +1968,12 @@ pi4-local-qemu-smoke: vm-consent $(PI4_QEMU_COMMAND) $(PI4_IMAGE)
 
 pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CHECK) pi4-image-inspect
 	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_DOOM_SERIAL)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME0)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME1)"
-	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)"
+	@rm -f "$(PI4_LOCAL_QEMU_DOOM_SERIAL)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME0)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME1)" "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER)"
+	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE)"
 	@printf "Starting local Pi 4 QEMU Doom input smoke: scripted input selects Doom, launches it, then sends gameplay input w.\n"
 	@ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_QEMU_FRAME1_SETTLE_MS="$(PI4_LOCAL_QEMU_DOOM_FRAME1_SETTLE_MS)" $(PI4_QEMU_COMMAND) --local-input-framebuffer-smoke "$(PI4_LOCAL_QEMU_DOOM_SECONDS)" "$(PI4_LOCAL_QEMU_DOOM_INPUT)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_DOOM_SERIAL)" "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME0)" "$(PI4_LOCAL_QEMU_DOOM_FB_FRAME1)" "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_KERNEL8_IMG)" "$(PI4_IMAGE)"
-	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
-	@cmp "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
+	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER)"
+	@cmp "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER)"
 	@$(VIBE_STATUS_CHECK) --pi4-local-qemu "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "evidence_class=local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
@@ -1921,12 +1998,12 @@ pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CH
 
 pi4-local-qemu-quake-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CHECK) pi4-image-inspect
 	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_QUAKE_SERIAL)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME0)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME1)"
-	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)"
+	@rm -f "$(PI4_LOCAL_QEMU_QUAKE_SERIAL)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME0)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME1)" "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER)"
+	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE)"
 	@printf "Starting local Pi 4 QEMU Quake input smoke: scripted input selects Quake, launches it, then sends gameplay input s.\n"
 	@ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_QEMU_FRAME1_SETTLE_MS="$(PI4_LOCAL_QEMU_QUAKE_FRAME1_SETTLE_MS)" $(PI4_QEMU_COMMAND) --local-input-framebuffer-smoke "$(PI4_LOCAL_QEMU_QUAKE_SECONDS)" "$(PI4_LOCAL_QEMU_QUAKE_INPUT)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL)" "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME0)" "$(PI4_LOCAL_QEMU_QUAKE_FB_FRAME1)" "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_KERNEL8_IMG)" "$(PI4_IMAGE)"
-	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
-	@cmp "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
+	@shasum -a 256 "$(PI4_IMAGE)" > "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER)"
+	@cmp "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER)"
 	@$(VIBE_STATUS_CHECK) --pi4-local-qemu "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "evidence_class=local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
@@ -1954,12 +2031,21 @@ pi4-local-qemu-input-smoke: pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake
 
 pi4-local-qemu-final-gates: pi4-local-qemu-input-smoke $(VIBE_STATUS_CHECK)
 	@set -e; \
+		read_sha() { test -s "$$1" || { echo "missing Pi 4 single-artifact SHA evidence: $$1" >&2; exit 1; }; cut -d ' ' -f 1 "$$1"; }; \
 		doom_audio="$$(tr ' ' '\n' < "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" | sed -n 's/^pi4audio=//p' | tail -n 1)"; \
 		quake_audio="$$(tr ' ' '\n' < "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" | sed -n 's/^pi4audio=//p' | tail -n 1)"; \
 		doom_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" | tail -n 1)"; \
 		doom_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" | tail -n 1)"; \
 		quake_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		quake_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
+		doom_sha_before="$$(read_sha "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE)")"; \
+		doom_sha_after="$$(read_sha "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER)")"; \
+		quake_sha_before="$$(read_sha "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE)")"; \
+		quake_sha_after="$$(read_sha "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER)")"; \
+		if [ "$$doom_sha_before" != "$$doom_sha_after" ] || [ "$$doom_sha_after" != "$$quake_sha_before" ] || [ "$$quake_sha_before" != "$$quake_sha_after" ]; then \
+			echo "Pi 4 local QEMU final gates require one unchanged Pi image across Doom and Quake captures" >&2; \
+			exit 1; \
+		fi; \
 		case "$$doom_audio:$$quake_audio" in \
 			OK:OK) audio_gate=green ;; \
 			*OK*) echo "local QEMU captured only partial pi4audio=OK: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
@@ -1991,13 +2077,19 @@ pi4-local-qemu-final-gates: pi4-local-qemu-input-smoke $(VIBE_STATUS_CHECK)
 		printf "capture_audio_quake=%s\n" "$$quake_audio" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "single_artifact=green\n" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "single_artifact_image=%s\n" "$(PI4_IMAGE)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
-		printf "single_artifact_sha256=%s\n" "$$(cut -d ' ' -f 1 "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)")" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_sha256=%s\n" "$$quake_sha_after" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_sha256_stable=true\n" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_doom_sha256_before=%s\n" "$$doom_sha_before" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_doom_sha256_after=%s\n" "$$doom_sha_after" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_quake_sha256_before=%s\n" "$$quake_sha_before" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
+		printf "single_artifact_quake_sha256_after=%s\n" "$$quake_sha_after" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "single_artifact_inspect=%s\n" "$(PI4_IMAGE_INSPECT_TXT)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "doom_serial=%s\n" "$(PI4_LOCAL_QEMU_DOOM_SERIAL)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "doom_status=%s\n" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "quake_serial=%s\n" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
 		printf "quake_status=%s\n" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" >> "$(PI4_LOCAL_QEMU_FINAL_GATES)"
 	@$(VIBE_STATUS_CHECK) --pi4-final-gates "$(PI4_LOCAL_QEMU_FINAL_GATES)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
+	@$(VIBE_STATUS_CHECK) --pi4-final-gates-single-artifact "$(PI4_LOCAL_QEMU_FINAL_GATES)" "$$(shasum -a 256 "$(PI4_IMAGE)" | cut -d ' ' -f 1)"
 	@cat "$(PI4_LOCAL_QEMU_FINAL_GATES)"
 
 pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-apps-linked
@@ -2016,12 +2108,21 @@ pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-apps-
 
 pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $(VIBE_STATUS_CHECK)
 	@set -e; \
+		read_sha() { test -s "$$1" || { echo "missing Pi 4 single-artifact SHA evidence: $$1" >&2; exit 1; }; cut -d ' ' -f 1 "$$1"; }; \
 		doom_audio="$$(tr ' ' '\n' < "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" | sed -n 's/^pi4audio=//p' | tail -n 1)"; \
 		quake_audio="$$(tr ' ' '\n' < "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" | sed -n 's/^pi4audio=//p' | tail -n 1)"; \
 		doom_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" | tail -n 1)"; \
 		doom_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_DOOM_FB_REPORT)" | tail -n 1)"; \
 		quake_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		quake_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
+		doom_sha_before="$$(read_sha "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE)")"; \
+		doom_sha_after="$$(read_sha "$(PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_AFTER)")"; \
+		quake_sha_before="$$(read_sha "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_BEFORE)")"; \
+		quake_sha_after="$$(read_sha "$(PI4_LOCAL_QEMU_QUAKE_IMAGE_SHA_AFTER)")"; \
+		if [ "$$doom_sha_before" != "$$doom_sha_after" ] || [ "$$doom_sha_after" != "$$quake_sha_before" ] || [ "$$quake_sha_before" != "$$quake_sha_after" ]; then \
+			echo "Pi 4 real-assets final gates require one unchanged Pi image across Doom and Quake captures" >&2; \
+			exit 1; \
+		fi; \
 		case "$$doom_audio:$$quake_audio" in \
 			OK:OK) audio_gate=green ;; \
 			*OK*) echo "local QEMU captured only partial pi4audio=OK: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
@@ -2057,13 +2158,19 @@ pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $
 		printf "capture_audio_quake=%s\n" "$$quake_audio" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "single_artifact=green\n" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "single_artifact_image=%s\n" "$(PI4_REAL_ASSET_PROOF_IMAGE)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
-		printf "single_artifact_sha256=%s\n" "$$(cut -d ' ' -f 1 "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)")" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_sha256=%s\n" "$$quake_sha_after" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_sha256_stable=true\n" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_doom_sha256_before=%s\n" "$$doom_sha_before" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_doom_sha256_after=%s\n" "$$doom_sha_after" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_quake_sha256_before=%s\n" "$$quake_sha_before" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
+		printf "single_artifact_quake_sha256_after=%s\n" "$$quake_sha_after" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "single_artifact_inspect=%s\n" "$(PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "doom_serial=%s\n" "$(PI4_LOCAL_QEMU_DOOM_SERIAL)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "doom_status=%s\n" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "quake_serial=%s\n" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \
 		printf "quake_status=%s\n" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" >> "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"
 	@$(VIBE_STATUS_CHECK) --pi4-final-gates "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
+	@$(VIBE_STATUS_CHECK) --pi4-final-gates-single-artifact "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)" "$$(shasum -a 256 "$(PI4_REAL_ASSET_PROOF_IMAGE)" | cut -d ' ' -f 1)"
 	@cat "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"
 
 pi4-hw-equivalent-qemu-args:

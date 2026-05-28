@@ -225,7 +225,7 @@
 .equ PI4_VIBE_SEEK_SET,                 0
 .equ PI4_VIBE_SEEK_CUR,                 1
 .equ PI4_VIBE_SEEK_END,                 2
-.equ PI4_VIBE_REQUIRED_APP_RECORD_COUNT, 2
+.equ PI4_VIBE_MIN_APP_RECORD_COUNT, 1
 .equ PI4_VIBE_APP_RECORD_DIR_NAME,  0
 .equ PI4_VIBE_APP_RECORD_ELF_META,  8
 .equ PI4_VIBE_APP_RECORD_ELF_OFFSET, 16
@@ -2796,33 +2796,6 @@ pi4_prepare_storage_handoff:
     bl pi4_app_records_have_file_status
     cbz x0, .Lpi4_prepare_storage_handoff_done
 
-    adr x0, pi4_storage_status_doom1_wad
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
-
-    adr x0, pi4_storage_status_pi4vfs
-    ldr w1, =PI4_START_STORAGE_VFS_OK
-    str w1, [x0]
-
-    adr x0, pi4_storage_status_manifest_txt
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
-
-    adr x0, pi4_storage_status_id1_dir
-    ldr x1, [x0]
-    cbz x1, .Lpi4_prepare_storage_no_pak
-    adr x0, pi4_storage_status_pak0_pak
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
-    ldr x1, [x0, #16]
-    cbz x1, .Lpi4_prepare_storage_handoff_done
-.Lpi4_prepare_storage_no_pak:
     adr x0, pi4_storage_status_pi4vfs
     ldr w1, =PI4_START_STORAGE_VFS_OK
     str w1, [x0]
@@ -2878,8 +2851,6 @@ pi4_app_records_have_file_status:
     ldr x8, [x2, #PI4_VIBE_APP_RECORD_DIR_STATUS]
     ldr x8, [x8]
     cbnz x8, .Lpi4_app_records_have_file_status_active
-    cmp x3, #PI4_VIBE_REQUIRED_APP_RECORD_COUNT
-    b.lo .Lpi4_app_records_have_file_status_bad
     b .Lpi4_app_records_have_file_status_step
 .Lpi4_app_records_have_file_status_active:
     add x7, x7, #1
@@ -2894,7 +2865,7 @@ pi4_app_records_have_file_status:
     b .Lpi4_app_records_have_file_status_next
 
 .Lpi4_app_records_have_file_status_ok:
-    cmp x7, #PI4_VIBE_REQUIRED_APP_RECORD_COUNT
+    cmp x7, #PI4_VIBE_MIN_APP_RECORD_COUNT
     b.lo .Lpi4_app_records_have_file_status_bad
     mov x0, #1
     ret

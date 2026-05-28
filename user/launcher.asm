@@ -75,6 +75,7 @@ BITS 32
 %define LAUNCHER_ART_PALETTE_STEP 51
 %define LAUNCHER_TEXT_BUFFER_BYTES 4096
 %define LAUNCHER_PATH_MAX_BYTES 128
+%define LAUNCHER_APP_COUNT_TEXT_BYTES 8
 %define LAUNCHER_APP_INDEX_READY 0x00000001
 %define LAUNCHER_APP0_MANIFEST_LISTED 0x00000002
 %define LAUNCHER_APP1_MANIFEST_LISTED 0x00000004
@@ -638,6 +639,18 @@ launcher_load_app_metadata:
     mov eax, launcher_index_path
     call launcher_read_text_file
     test eax, eax
+    jne .done
+    mov esi, [launcher_asset_ptr]
+    mov ecx, [launcher_text_size]
+    mov edi, launcher_app_count_key
+    mov ebx, launcher_app_count_value
+    mov edx, LAUNCHER_APP_COUNT_TEXT_BYTES
+    call launcher_find_key_value_copy
+    test eax, eax
+    jne .done
+    cmp byte [launcher_app_count_value], '2'
+    jne .done
+    cmp byte [launcher_app_count_value + 1], 0
     jne .done
     or dword [launcher_app_flags], LAUNCHER_APP_INDEX_READY
 
@@ -2069,6 +2082,7 @@ launcher_plot_pixel_clipped:
 
 section .rodata
 launcher_index_path db `/APPS/INDEX.TXT`, 0
+launcher_app_count_key db `app_count=`, 0
 launcher_app0_manifest_key db `app.0.manifest=`, 0
 launcher_app1_manifest_key db `app.1.manifest=`, 0
 launcher_exec_key db `exec=`, 0
@@ -2186,3 +2200,4 @@ launcher_app0_manifest_path resb LAUNCHER_PATH_MAX_BYTES
 launcher_app1_manifest_path resb LAUNCHER_PATH_MAX_BYTES
 launcher_app0_exec_path resb LAUNCHER_PATH_MAX_BYTES
 launcher_app1_exec_path resb LAUNCHER_PATH_MAX_BYTES
+launcher_app_count_value resb LAUNCHER_APP_COUNT_TEXT_BYTES
