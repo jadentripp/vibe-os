@@ -46,7 +46,7 @@ loaders, drivers, user/runtime ABI, and Doom platform integration.
 
 ## Safety
 
-- Do not run local QEMU or local VM proof on this Mac.
-- QEMU proof belongs in disposable cloud/Codespaces/GitHub Actions lanes.
+- Local QEMU and local VM proof are allowed on this Mac when the user or
+  parent agent chooses them intentionally.
 - Keep WADs, disk images, screenshots, raw audio, VM logs, and secrets out of
   git.
