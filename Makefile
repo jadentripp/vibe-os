@@ -23,7 +23,7 @@ SECONDARY_PACKAGE ?= $(QUAKE_PAK)
 SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
-SMOKE_INPUT_SCRIPT ?=
+SMOKE_INPUT_SCRIPT ?= launcher-select:1,wait-status=path:/APPS/DOOM/APP.ELF:30:1,wait-status=doom:OK:30:1
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 SMOKE_REQUIRE_KEY_EVENT ?= 0
 SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
@@ -32,7 +32,7 @@ SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0
 SMOKE_REQUIRE_AUDIO_CONTINUITY ?= 0
 SMOKE_SKIP_ASSERTIONS ?= 0
 SMOKE_NC_TIMEOUT ?= 3
-SMOKE_QEMU_TIMEOUT ?= 30
+SMOKE_QEMU_TIMEOUT ?= 75
 SMOKE_EARLY_SECONDS ?= 2
 SMOKE_SETTLE_SECONDS ?= 5
 SMOKE_SHUTDOWN_TIMEOUT ?= 5
@@ -179,9 +179,12 @@ PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/PAYLOAD1.ELF
 PI4_LAUNCHER_STATE_MANIFEST_ELF ?= $(PI4_LAUNCHER_ELF)
 PI4_PAYLOAD0_ELF ?= $(PI4_DOOM_ELF)
 PI4_PAYLOAD1_ELF ?= $(PI4_QUAKE_ELF)
-PI4_APP_INDEX_TXT := user/pi4_apps_index.txt
-PI4_APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
-PI4_APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
+APP_INDEX_TXT := user/pi4_apps_index.txt
+APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
+APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
+PI4_APP_INDEX_TXT := $(APP_INDEX_TXT)
+PI4_APP_DOOM_MANIFEST_TXT := $(APP_DOOM_MANIFEST_TXT)
+PI4_APP_QUAKE_MANIFEST_TXT := $(APP_QUAKE_MANIFEST_TXT)
 PI4_PAYLOAD_ROOT_ELF_ARGS :=
 PI4_PAYLOAD_ELF_DEPS :=
 ifneq ($(strip $(PI4_PAYLOAD0_ELF)),)
@@ -302,10 +305,13 @@ PI4_USER_ELF_MAX_BYTES := 262144
 PI4_AARCH64_USER_FLAGS := --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -Iuser -Iuser/include
 PI4_AARCH64_USER_CFLAGS := $(PI4_AARCH64_USER_FLAGS) -O2 -mstrict-align -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-pic -fno-vectorize -fno-slp-vectorize
 LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
+X86_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(USER_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(QUAKE_ELF)
+X86_APP_INSTALL_DEPS := $(APP_INDEX_TXT) $(APP_DOOM_MANIFEST_TXT) $(APP_QUAKE_MANIFEST_TXT)
 X86_CORE_ROOT_ELFS := INIT.ELF ABIPROBE.ELF
 X86_LARGE_PAYLOAD_ROOT_ELFS := PAYLOAD0.ELF PAYLOAD1.ELF
 X86_REQUIRED_ROOT_ELFS := $(X86_CORE_ROOT_ELFS) $(X86_LARGE_PAYLOAD_ROOT_ELFS)
-IMAGE_INSPECT_REQUIRED_FILE_ARGS := $(foreach root_elf,$(X86_REQUIRED_ROOT_ELFS),--require-file $(root_elf))
+X86_REQUIRED_APP_FILES := /SYSTEM/INIT.ELF /SYSTEM/ABIPROBE.ELF /APPS/INDEX.TXT /APPS/DOOM/APP.TXT /APPS/DOOM/APP.ELF /APPS/QUAKE/APP.TXT /APPS/QUAKE/APP.ELF
+IMAGE_INSPECT_REQUIRED_FILE_ARGS := $(foreach root_elf,$(X86_REQUIRED_ROOT_ELFS),--require-file $(root_elf)) $(foreach app_file,$(X86_REQUIRED_APP_FILES),--require-file $(app_file))
 IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
@@ -531,11 +537,18 @@ image-builder-inspect: $(IMAGE_BUILDER) $(IMAGE)
 			printf "x86 image inspect did not prove required FAT file %s\n" "$$root_elf" >&2; \
 			exit 1; \
 		}; \
+	done; \
+	for app_file in $(X86_REQUIRED_APP_FILES); do \
+		grep -E -q "required_file=$$app_file state=present size=[1-9][0-9]* cluster=[0-9]+" "$(IMAGE_INSPECT_TXT)" || { \
+			printf "x86 image inspect did not prove required app file %s\n" "$$app_file" >&2; \
+			exit 1; \
+		}; \
 	done
 
 x86-image-builder-wiring-check:
 	@set -e; \
 	args="$(IMAGE_ROOT_ELF_ARGS)"; \
+	app_args="$(X86_APP_INSTALL_ARGS)"; \
 	for root_elf in $(X86_REQUIRED_ROOT_ELFS); do \
 		printf '%s\n' "$$args" | grep -F -q -- "--root-elf $$root_elf=" || { \
 			printf "x86 image builder root ELF wiring is missing %s\n" "$$root_elf" >&2; \
@@ -546,7 +559,13 @@ x86-image-builder-wiring-check:
 		printf "x86 image builder wiring lost the large-payload root ELF args.\n" >&2; \
 		exit 1; \
 	}; \
-	printf "x86 image builder wiring OK: BIOS image keeps INIT, ABI probe, Doom, and Quake root ELFs.\n"
+	for app_file in $(X86_REQUIRED_APP_FILES); do \
+		printf '%s\n' "$$app_args" | grep -F -q -- "--asset $$app_file=" || { \
+			printf "x86 image builder app install wiring is missing %s\n" "$$app_file" >&2; \
+			exit 1; \
+		}; \
+	done; \
+	printf "x86 image builder wiring OK: BIOS image keeps legacy root ELFs and installs /SYSTEM plus /APPS.\n"
 
 x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 	@set -e; \
@@ -558,13 +577,20 @@ x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 		"--root-elf INIT.ELF=$(USER_LAUNCHER_ELF)" \
 		"--root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)" \
 		"--root-elf PAYLOAD0.ELF=$(DOOM_ELF)" \
-		"--root-elf PAYLOAD1.ELF=$(QUAKE_ELF)"; do \
+		"--root-elf PAYLOAD1.ELF=$(QUAKE_ELF)" \
+		"--asset /SYSTEM/INIT.ELF=$(USER_LAUNCHER_ELF)" \
+		"--asset /SYSTEM/ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)" \
+		"--asset /APPS/INDEX.TXT=$(APP_INDEX_TXT)" \
+		"--asset /APPS/DOOM/APP.TXT=$(APP_DOOM_MANIFEST_TXT)" \
+		"--asset /APPS/DOOM/APP.ELF=$(DOOM_ELF)" \
+		"--asset /APPS/QUAKE/APP.TXT=$(APP_QUAKE_MANIFEST_TXT)" \
+		"--asset /APPS/QUAKE/APP.ELF=$(QUAKE_ELF)"; do \
 		grep -F -q -- "$$needle" "$$dryrun" || { \
 			printf "x86 UEFI image builder dry run lost %s\n" "$$needle" >&2; \
 			exit 1; \
 		}; \
 		done; \
-	printf "x86 UEFI image builder wiring OK: dual image keeps loader, kernel, INIT, ABI probe, Doom, and Quake root ELFs.\n"
+	printf "x86 UEFI image builder wiring OK: dual image keeps loader, kernel, legacy root ELFs, and /APPS install tree.\n"
 
 x86-pi4-real-assets-isolation-check:
 	@set -e; \
@@ -614,11 +640,11 @@ uefi-loader-object: $(UEFI_LOADER_OBJ)
 
 uefi-loader-pe: $(UEFI_LOADER_EFI)
 
-$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) | $(UEFI_BUILD_DIR)
+$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) $(X86_APP_INSTALL_DEPS) | $(UEFI_BUILD_DIR)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
-		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $(X86_APP_INSTALL_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
-		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $(X86_APP_INSTALL_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	fi
 	@printf "Built dual BIOS/UEFI FAT16 image %s\n" "$@"
 
@@ -2550,11 +2576,11 @@ $(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS)
+$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) $(X86_APP_INSTALL_DEPS)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
-		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $(X86_APP_INSTALL_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
-		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $(X86_APP_INSTALL_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	fi
 	@printf "Built %s\n" "$@"
 
@@ -2671,7 +2697,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=/APPS/DOOM/APP.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "uexec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "upath=INIT.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "upid=" $(BUILD_DIR)/status.txt; \
@@ -2837,7 +2863,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
-		grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
+		grep -q "path=/APPS/DOOM/APP.ELF" $(BUILD_DIR)/status.txt; \
 		grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "gameplay=OK" $(BUILD_DIR)/status.txt; \
@@ -2870,7 +2896,7 @@ smoke: vm-consent check-tools $(IMAGE)
 quake-status-proof-check:
 	@set -e; \
 	test -s $(BUILD_DIR)/status.txt; \
-	grep -q "path=PAYLOAD1.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=/APPS/QUAKE/APP.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "quake=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "quakerun=RUN" $(BUILD_DIR)/status.txt; \
 	grep -q "quakeopen=OK" $(BUILD_DIR)/status.txt; \
@@ -2887,7 +2913,7 @@ quake-status-proof-check:
 	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qaudio=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	printf "Quake proof status OK: PAYLOAD1.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
+	printf "Quake proof status OK: /APPS/QUAKE/APP.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
 
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh

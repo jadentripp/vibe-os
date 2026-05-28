@@ -155,6 +155,13 @@ static const uint8_t DEFAULT_PI4_ASSET_MAP[] = "name=E1M1\nmusic=D_E1M1\n";
 static const char MBR_DISK_ID[] = "VOSD";
 static const char FAT_OEM_NAME[] = "VIBEOS  ";
 static const char FAT_VOLUME_LABEL[] = "VIBEOS WAD ";
+static const uint8_t FIXTURE_MUS_SCORE_END[] = {
+    'M', 'U', 'S', 0x1a,
+    0x01, 0x00, 0x10, 0x00,
+    0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x60,
+};
 
 static const char* const switch_textures[] = {
     "SW1BRCOM", "SW2BRCOM", "SW1BRN1", "SW2BRN1", "SW1BRN2", "SW2BRN2",
@@ -2307,6 +2314,7 @@ static void add_startup_patch_lumps(WadLump** lumps, size_t* count, size_t* cap,
         snprintf(name, sizeof(name), "STTNUM%d", i);
         add_lump(lumps, count, cap, wad, cursor, name, patch, patch_size);
     }
+    add_lump(lumps, count, cap, wad, cursor, "STTMINUS", patch, patch_size);
     for (int i = 0; i < 10; i++) {
         snprintf(name, sizeof(name), "STYSNUM%d", i);
         add_lump(lumps, count, cap, wad, cursor, name, patch, patch_size);
@@ -2346,6 +2354,55 @@ static void add_startup_patch_lumps(WadLump** lumps, size_t* count, size_t* cap,
     add_lump(lumps, count, cap, wad, cursor, "HELP2", patch, patch_size);
 }
 
+static void add_fixture_sprite_lumps(WadLump** lumps, size_t* count, size_t* cap, uint8_t* wad, uint32_t* cursor, const uint8_t* patch, size_t patch_size)
+{
+    static const char* const sprites[] = {
+        "PUNGA0", "PUNGB0", "PUNGC0", "PUNGD0",
+        "PISGA0", "PISGB0", "PISGC0", "PISFA0",
+        "PLAYA0",
+    };
+
+    for (size_t i = 0; i < sizeof(sprites) / sizeof(sprites[0]); i++)
+        add_lump(lumps, count, cap, wad, cursor, sprites[i], patch, patch_size);
+}
+
+static void put_map_vertex(uint8_t* data, size_t off, int16_t x, int16_t y)
+{
+    put_u16(data, 16, off, (uint16_t)x);
+    put_u16(data, 16, off + 2, (uint16_t)y);
+}
+
+static void put_map_linedef(uint8_t* data, size_t off, int16_t v1, int16_t v2, int16_t flags, int16_t side)
+{
+    put_u16(data, 56, off, (uint16_t)v1);
+    put_u16(data, 56, off + 2, (uint16_t)v2);
+    put_u16(data, 56, off + 4, (uint16_t)flags);
+    put_u16(data, 56, off + 6, 0);
+    put_u16(data, 56, off + 8, 0);
+    put_u16(data, 56, off + 10, (uint16_t)side);
+    put_u16(data, 56, off + 12, 0xffff);
+}
+
+static void put_map_sidedef(uint8_t* data, size_t off)
+{
+    put_u16(data, 120, off, 0);
+    put_u16(data, 120, off + 2, 0);
+    wad_name((char*)data + off + 4, "-");
+    wad_name((char*)data + off + 12, "-");
+    wad_name((char*)data + off + 20, "SW1BRCOM");
+    put_u16(data, 120, off + 28, 0);
+}
+
+static void put_map_seg(uint8_t* data, size_t off, int16_t v1, int16_t v2, int16_t angle, int16_t linedef)
+{
+    put_u16(data, 48, off, (uint16_t)v1);
+    put_u16(data, 48, off + 2, (uint16_t)v2);
+    put_u16(data, 48, off + 4, (uint16_t)angle);
+    put_u16(data, 48, off + 6, (uint16_t)linedef);
+    put_u16(data, 48, off + 8, 0);
+    put_u16(data, 48, off + 10, 0);
+}
+
 static Blob build_generated_wad(void)
 {
     Blob wad;
@@ -2362,11 +2419,55 @@ static Blob build_generated_wad(void)
     uint8_t* colormap = (uint8_t*)xcalloc(34 * 256, 1);
     uint8_t flat[64 * 64] = {0};
     uint8_t things[10] = {0};
+    uint8_t linedefs[4 * 14] = {0};
+    uint8_t sidedefs[4 * 30] = {0};
+    uint8_t vertexes[4 * 4] = {0};
+    uint8_t segs[4 * 12] = {0};
+    uint8_t ssectors[4] = {0};
+    uint8_t sector[26] = {0};
+    uint8_t reject[1] = {0};
+    uint8_t blockmap[13 * 2] = {0};
 
     for (size_t i = 0; i < 14 * 256 * 3; i++)
         playpal[i] = (uint8_t)(i % 64);
     for (size_t i = 0; i < 34 * 256; i++)
         colormap[i] = (uint8_t)(i & 0xff);
+    put_u16(things, sizeof(things), 6, 1);
+    put_u16(things, sizeof(things), 8, 7);
+    put_map_vertex(vertexes, 0, -64, -64);
+    put_map_vertex(vertexes, 4, 64, -64);
+    put_map_vertex(vertexes, 8, 64, 64);
+    put_map_vertex(vertexes, 12, -64, 64);
+    put_map_linedef(linedefs, 0, 1, 0, 1, 0);
+    put_map_linedef(linedefs, 14, 2, 1, 1, 1);
+    put_map_linedef(linedefs, 28, 3, 2, 1, 2);
+    put_map_linedef(linedefs, 42, 0, 3, 1, 3);
+    for (size_t i = 0; i < 4; i++)
+        put_map_sidedef(sidedefs, i * 30);
+    put_map_seg(segs, 0, 1, 0, 32767, 0);
+    put_map_seg(segs, 12, 2, 1, -16384, 1);
+    put_map_seg(segs, 24, 3, 2, 0, 2);
+    put_map_seg(segs, 36, 0, 3, 16384, 3);
+    put_u16(ssectors, sizeof(ssectors), 0, 4);
+    put_u16(ssectors, sizeof(ssectors), 2, 0);
+    put_u16(sector, sizeof(sector), 0, 0);
+    put_u16(sector, sizeof(sector), 2, 128);
+    wad_name((char*)sector + 4, "F_SKY1");
+    wad_name((char*)sector + 12, "F_SKY1");
+    put_u16(sector, sizeof(sector), 20, 160);
+    put_u16(blockmap, sizeof(blockmap), 0, (uint16_t)-128);
+    put_u16(blockmap, sizeof(blockmap), 2, (uint16_t)-128);
+    put_u16(blockmap, sizeof(blockmap), 4, 2);
+    put_u16(blockmap, sizeof(blockmap), 6, 2);
+    put_u16(blockmap, sizeof(blockmap), 8, 8);
+    put_u16(blockmap, sizeof(blockmap), 10, 8);
+    put_u16(blockmap, sizeof(blockmap), 12, 8);
+    put_u16(blockmap, sizeof(blockmap), 14, 8);
+    put_u16(blockmap, sizeof(blockmap), 16, 0);
+    put_u16(blockmap, sizeof(blockmap), 18, 1);
+    put_u16(blockmap, sizeof(blockmap), 20, 2);
+    put_u16(blockmap, sizeof(blockmap), 22, 3);
+    put_u16(blockmap, sizeof(blockmap), 24, 0xffff);
 
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "PLAYPAL", playpal, 14 * 256 * 3);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "COLORMAP", colormap, 34 * 256);
@@ -2376,11 +2477,22 @@ static Blob build_generated_wad(void)
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "F_SKY1", flat, sizeof(flat));
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "F_END", NULL, 0);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "S_START", NULL, 0);
+    add_fixture_sprite_lumps(&lumps, &lump_count, &lump_cap, wad.data, &cursor, patch.data, patch.size);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "S_END", NULL, 0);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "SYNTHPCH", patch.data, patch.size);
-    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "D_INTRO", NULL, 0);
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "D_INTRO", FIXTURE_MUS_SCORE_END, sizeof(FIXTURE_MUS_SCORE_END));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "D_E1M1", FIXTURE_MUS_SCORE_END, sizeof(FIXTURE_MUS_SCORE_END));
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "E1M1", NULL, 0);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "THINGS", things, sizeof(things));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "LINEDEFS", linedefs, sizeof(linedefs));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "SIDEDEFS", sidedefs, sizeof(sidedefs));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "VERTEXES", vertexes, sizeof(vertexes));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "SEGS", segs, sizeof(segs));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "SSECTORS", ssectors, sizeof(ssectors));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "NODES", NULL, 0);
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "SECTORS", sector, sizeof(sector));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "REJECT", reject, sizeof(reject));
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "BLOCKMAP", blockmap, sizeof(blockmap));
     add_startup_patch_lumps(&lumps, &lump_count, &lump_cap, wad.data, &cursor, patch.data, patch.size);
 
     uint32_t directory_offset = cursor;
