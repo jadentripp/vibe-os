@@ -428,7 +428,9 @@
 .equ PI4_VIBE_INPUT_DEVICE_STATUS_BYTES, 128
 .equ PI4_VIBE_FB_INFO_BYTES,            168
 .equ PI4_VIBE_PRESENT_INDEXED_BYTES,    32
-.equ PI4_EL0_STACK_FRAME_BYTES,         128
+.equ PI4_EL0_STACK_HEADER_BYTES,        128
+.equ PI4_EL0_STACK_ARGV0_BYTES,         PI4_VIBE_FILE_PATH_MAX_BYTES
+.equ PI4_EL0_STACK_FRAME_BYTES,         PI4_EL0_STACK_HEADER_BYTES + PI4_EL0_STACK_ARGV0_BYTES
 .equ PI4_EL0_STACK_TOTAL_BYTES,         0x00040000
 .equ PI4_EL0_ALLOC_FLAG_IMAGE,          0x00000001
 .equ PI4_EL0_ALLOC_FLAG_STACK,          0x00000002
@@ -1556,6 +1558,8 @@ pi4_prepare_embedded_elf_probe:
 
 .type pi4_build_embedded_user_stack, %function
 pi4_build_embedded_user_stack:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
     adr x0, pi4_status_pi4el0_stack_base
     ldr x0, [x0]
     adr x1, pi4_status_pi4el0_stack_top
@@ -1566,12 +1570,17 @@ pi4_build_embedded_user_stack:
     sub x3, x1, x2
     cmp x3, x0
     b.lo .Lpi4_embedded_stack_bad
+    mov x7, x1
 
     mov x4, x3
     mov x5, #1
     str x5, [x4], #8
     adr x5, pi4_embedded_user_argv0_string
-    str x5, [x4], #8
+    add x6, x3, #PI4_EL0_STACK_HEADER_BYTES
+    mov x0, x6
+    mov x1, x5
+    bl pi4_copy_argv0_to_user_stack
+    str x6, [x4], #8
     str xzr, [x4], #8
     str xzr, [x4], #8
 
@@ -1601,7 +1610,7 @@ pi4_build_embedded_user_stack:
     adr x5, pi4_status_pi4ustack_sp
     str x3, [x5]
     adr x5, pi4_status_pi4ustack_top
-    str x1, [x5]
+    str x7, [x5]
     adr x5, pi4_status_pi4ustack_bytes
     str x2, [x5]
     adr x5, pi4_status_pi4ustack_argc
@@ -1621,6 +1630,7 @@ pi4_build_embedded_user_stack:
     str x6, [x5]
 
     mov x0, x3
+    ldp x29, x30, [sp], #16
     ret
 
 .Lpi4_embedded_stack_bad:
@@ -2075,6 +2085,8 @@ pi4_prepare_nonembedded_init_elf:
 
 .type pi4_build_nonembedded_user_stack, %function
 pi4_build_nonembedded_user_stack:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
     cbz x0, .Lpi4_nonembedded_stack_bad
     cbz x1, .Lpi4_nonembedded_stack_bad
     cmp x1, x0
@@ -2100,15 +2112,19 @@ pi4_build_nonembedded_user_stack:
     ldr x6, [x6]
     cmp x6, #PI4_VIBE_FILE_ASSET_APP0_ELF
     b.ne .Lpi4_nonembedded_stack_check_app1_argv0
-    adr x5, pi4_app0_default_elf_path_string
+    adr x5, pi4_status_pi4appreq_path_copy
     b .Lpi4_nonembedded_stack_have_argv0
 .Lpi4_nonembedded_stack_check_app1_argv0:
     cmp x6, #PI4_VIBE_FILE_ASSET_APP1_ELF
     b.ne .Lpi4_nonembedded_stack_have_argv0
-    adr x5, pi4_app1_default_elf_path_string
+    adr x5, pi4_status_pi4appreq_path_copy
     b .Lpi4_nonembedded_stack_have_argv0
 .Lpi4_nonembedded_stack_have_argv0:
-    str x5, [x4], #8
+    add x6, x3, #PI4_EL0_STACK_HEADER_BYTES
+    mov x0, x6
+    mov x1, x5
+    bl pi4_copy_argv0_to_user_stack
+    str x6, [x4], #8
     str xzr, [x4], #8
     str xzr, [x4], #8
 
@@ -2162,10 +2178,12 @@ pi4_build_nonembedded_user_stack:
     str x6, [x5]
 
     mov x0, x3
+    ldp x29, x30, [sp], #16
     ret
 
 .Lpi4_nonembedded_stack_bad:
     mov x0, xzr
+    ldp x29, x30, [sp], #16
     ret
 .size pi4_build_nonembedded_user_stack, . - pi4_build_nonembedded_user_stack
 
@@ -5544,25 +5562,25 @@ pi4_uart_write_uabi_tuple:
     adr x0, pi4_status_pi4exec_result
     ldr x1, [x0]
     cbnz x1, .Lpi4_uart_write_uabi_ok_init
-    adr x0, pi4_status_pi4appreq_matched_asset
+    adr x0, pi4_status_pi4appreq_path_bytes
     ldr x1, [x0]
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP0_ELF
-    b.eq .Lpi4_uart_write_uabi_ok_app0
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP1_ELF
-    b.eq .Lpi4_uart_write_uabi_ok_app1
+    cbnz x1, .Lpi4_uart_write_uabi_ok_app_path
 
 .Lpi4_uart_write_uabi_ok_init:
     adr x0, msg_status_pi4uabi_ok
     bl pi4_uart_write_string
     b .Lpi4_uart_write_uabi_ok_entry
 
-.Lpi4_uart_write_uabi_ok_app0:
-    adr x0, msg_status_pi4uabi_ok_app0
+.Lpi4_uart_write_uabi_ok_app_path:
+    adr x0, msg_status_pi4uabi_ok_path_prefix
     bl pi4_uart_write_string
-    b .Lpi4_uart_write_uabi_ok_entry
-
-.Lpi4_uart_write_uabi_ok_app1:
-    adr x0, msg_status_pi4uabi_ok_app1
+    adr x0, pi4_status_pi4appreq_path_copy
+    bl pi4_uart_write_string
+    adr x0, msg_status_pi4uabi_ok_upath_prefix
+    bl pi4_uart_write_string
+    adr x0, pi4_status_pi4appreq_path_copy
+    bl pi4_uart_write_string
+    adr x0, msg_status_pi4uabi_ok_uentry_prefix
     bl pi4_uart_write_string
 
 .Lpi4_uart_write_uabi_ok_entry:
@@ -9692,6 +9710,47 @@ pi4_kernel_el0_strlen_bounded:
     ret
 .size pi4_kernel_el0_strlen_bounded, . - pi4_kernel_el0_strlen_bounded
 
+.type pi4_kernel_copy_string_bounded, %function
+pi4_kernel_copy_string_bounded:
+    cbz x0, .Lpi4_kernel_copy_string_bounded_bad
+    cbz x1, .Lpi4_kernel_copy_string_bounded_bad
+    cmp x2, #PI4_VIBE_FILE_PATH_MAX_BYTES
+    b.hs .Lpi4_kernel_copy_string_bounded_bad
+    mov x3, xzr
+.Lpi4_kernel_copy_string_bounded_next:
+    ldrb w4, [x0, x3]
+    strb w4, [x1, x3]
+    cmp x3, x2
+    b.eq .Lpi4_kernel_copy_string_bounded_done
+    add x3, x3, #1
+    b .Lpi4_kernel_copy_string_bounded_next
+.Lpi4_kernel_copy_string_bounded_done:
+    mov x0, #1
+    ret
+.Lpi4_kernel_copy_string_bounded_bad:
+    mov x0, xzr
+    ret
+.size pi4_kernel_copy_string_bounded, . - pi4_kernel_copy_string_bounded
+
+.type pi4_copy_argv0_to_user_stack, %function
+pi4_copy_argv0_to_user_stack:
+    stp x2, x3, [sp, #-16]!
+    cbz x0, .Lpi4_copy_argv0_to_user_stack_done
+    cbz x1, .Lpi4_copy_argv0_to_user_stack_done
+    mov x2, xzr
+.Lpi4_copy_argv0_to_user_stack_next:
+    ldrb w3, [x1, x2]
+    strb w3, [x0, x2]
+    cbz w3, .Lpi4_copy_argv0_to_user_stack_done
+    add x2, x2, #1
+    cmp x2, #(PI4_EL0_STACK_ARGV0_BYTES - 1)
+    b.lo .Lpi4_copy_argv0_to_user_stack_next
+    strb wzr, [x0, x2]
+.Lpi4_copy_argv0_to_user_stack_done:
+    ldp x2, x3, [sp], #16
+    ret
+.size pi4_copy_argv0_to_user_stack, . - pi4_copy_argv0_to_user_stack
+
 .type pi4_user_file_metadata_is_valid, %function
 pi4_user_file_metadata_is_valid:
     cbz x0, .Lpi4_user_file_metadata_bad
@@ -11083,6 +11142,8 @@ pi4_lower_el_svc_runtime_file_fstat:
     str xzr, [x10]
     adr x10, pi4_status_pi4appreq_path_bytes
     str xzr, [x10]
+    adr x10, pi4_status_pi4appreq_path_copy
+    str xzr, [x10]
     adr x10, pi4_status_pi4appreq_matched_asset
     mov x12, #PI4_VIBE_FILE_ASSET_NONE
     str x12, [x10]
@@ -11139,6 +11200,11 @@ pi4_lower_el_svc_runtime_file_fstat:
     b.eq .Lpi4_lower_el_svc_runtime_exec_inval
     adr x10, pi4_status_pi4appreq_path_bytes
     str x0, [x10]
+    mov x2, x0
+    mov x0, x13
+    adr x1, pi4_status_pi4appreq_path_copy
+    bl pi4_kernel_copy_string_bounded
+    cbz x0, .Lpi4_lower_el_svc_runtime_exec_inval
     ldr x14, [sp, #8]
     cbz x14, .Lpi4_lower_el_svc_runtime_exec_argv_ready
     mov x0, x14
@@ -11796,9 +11862,22 @@ pi4_el0_svc_probe:
     cmp x10, #1
     b.ne .Lpi4_el0_svc_bad
     ldr x10, [x9, #8]
-    adr x11, pi4_embedded_user_argv0_string
+    add x11, x9, #PI4_EL0_STACK_HEADER_BYTES
     cmp x10, x11
     b.ne .Lpi4_el0_svc_bad
+    adr x12, pi4_embedded_user_argv0_string
+    mov x13, xzr
+.Lpi4_el0_svc_argv0_next:
+    cmp x13, #PI4_EL0_STACK_ARGV0_BYTES
+    b.hs .Lpi4_el0_svc_bad
+    ldrb w14, [x10, x13]
+    ldrb w15, [x12, x13]
+    cmp w14, w15
+    b.ne .Lpi4_el0_svc_bad
+    cbz w14, .Lpi4_el0_svc_argv0_ok
+    add x13, x13, #1
+    b .Lpi4_el0_svc_argv0_next
+.Lpi4_el0_svc_argv0_ok:
     ldr x10, [x9, #16]
     cbnz x10, .Lpi4_el0_svc_bad
     ldr x10, [x9, #24]
@@ -12156,10 +12235,12 @@ msg_status_elf_tuple:
     .asciz " pi4uabi=WAIT pi4elf=OK pi4elfsrc=EMBEDDED pi4elfprobe="
 msg_status_pi4uabi_ok:
     .asciz " pi4uabi=OK exec=OK path=INIT.ELF uexec=OK upath=INIT.ELF uentry="
-msg_status_pi4uabi_ok_app0:
-    .asciz " pi4uabi=OK exec=OK path=/APPS/DOOM/APP.ELF uexec=OK upath=/APPS/DOOM/APP.ELF uentry="
-msg_status_pi4uabi_ok_app1:
-    .asciz " pi4uabi=OK exec=OK path=/APPS/QUAKE/APP.ELF uexec=OK upath=/APPS/QUAKE/APP.ELF uentry="
+msg_status_pi4uabi_ok_path_prefix:
+    .asciz " pi4uabi=OK exec=OK path="
+msg_status_pi4uabi_ok_upath_prefix:
+    .asciz " uexec=OK upath="
+msg_status_pi4uabi_ok_uentry_prefix:
+    .asciz " uentry="
 msg_status_execsys_tuple:
     .asciz " execsys="
 msg_status_pi4ustack_tuple:
@@ -12300,10 +12381,6 @@ msg_status_panic:
     .asciz " panic="
 msg_status_shutdown_none:
     .asciz " shutdown=NONE\r\n"
-pi4_app0_default_elf_path_string:
-    .asciz "/APPS/DOOM/APP.ELF"
-pi4_app1_default_elf_path_string:
-    .asciz "/APPS/QUAKE/APP.ELF"
 pi4_apps_path_prefix_string:
     .asciz "/APPS/"
 pi4_app_elf_leaf_string:
@@ -12674,6 +12751,9 @@ pi4_status_pi4appreq_path:
     .quad 0
 pi4_status_pi4appreq_path_bytes:
     .quad 0
+pi4_status_pi4appreq_path_copy:
+    .skip PI4_VIBE_FILE_PATH_MAX_BYTES
+    .balign 8
 pi4_status_pi4appreq_matched_asset:
     .quad PI4_VIBE_FILE_ASSET_NONE
 pi4_status_pi4appvfs_values_start:
