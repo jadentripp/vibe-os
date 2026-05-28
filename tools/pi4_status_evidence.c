@@ -14,8 +14,13 @@
 #define PI4_FAT_ATTR_VOLUME_ID 0x08ull
 #define PI4_FAT_ATTR_DIRECTORY 0x10ull
 #define PI4_STORAGE_FILE_STATUS_OK 0x00000000464F4F4Bull
-#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF 12ull
-#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF 13ull
+#define PI4_VIBE_FILE_ASSET_APP_ELF_BASE 12ull
+#define PI4_VIBE_FIRST_PROVEN_APP_COUNT 2ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF \
+    (PI4_VIBE_FILE_ASSET_APP_ELF_BASE + 0ull)
+#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF \
+    (PI4_VIBE_FILE_ASSET_APP_ELF_BASE + 1ull)
+#define PI4_APP_RECORD_KEY_BYTES 32u
 #define PI4_STORAGE_ASSET_COVERAGE_WAD 0x00000001ull
 #define PI4_STORAGE_ASSET_COVERAGE_MANIFEST 0x00000002ull
 #define PI4_STORAGE_ASSET_COVERAGE_PAK0 0x00000004ull
@@ -789,13 +794,53 @@ static int is_pi4_user_exec_path(const char* path)
         is_pi4_installed_app_path(path);
 }
 
-static const char* pi4_installed_app_record_key(uint64_t app_record)
+static int pi4_app_record_field_index(const char* name, uint64_t* index)
 {
-    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF)
-        return "pi4app0";
-    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF)
-        return "pi4app1";
-    return NULL;
+    static const char prefix[] = "pi4app";
+    const char* p = NULL;
+    uint64_t value = 0;
+
+    if (strncmp(name, prefix, sizeof(prefix) - 1) != 0)
+        return 0;
+    p = name + sizeof(prefix) - 1;
+    if (!isdigit((unsigned char)*p))
+        return 0;
+    for (; *p; p++) {
+        uint64_t digit = 0;
+
+        if (!isdigit((unsigned char)*p))
+            return 0;
+        digit = (uint64_t)(*p - '0');
+        if (value > (UINT64_MAX - digit) / 10)
+            return 0;
+        value = value * 10 + digit;
+    }
+    if (index)
+        *index = value;
+    return 1;
+}
+
+static int pi4_app_record_key_for_index(uint64_t index, char* key, size_t key_size)
+{
+    int written = snprintf(key, key_size, "pi4app%llu", (unsigned long long)index);
+
+    return written > 0 && (size_t)written < key_size;
+}
+
+static int pi4_app_record_key_for_elf_asset(uint64_t app_record, char* key,
+    size_t key_size)
+{
+    if (app_record < PI4_VIBE_FILE_ASSET_APP_ELF_BASE)
+        return 0;
+    return pi4_app_record_key_for_index(app_record - PI4_VIBE_FILE_ASSET_APP_ELF_BASE,
+        key, key_size);
+}
+
+static int pi4_status_has_installed_app_record(const Field* fields, size_t count,
+    uint64_t app_record, char* key, size_t key_size)
+{
+    return pi4_app_record_key_for_elf_asset(app_record, key, key_size) &&
+        find_value(fields, count, key) != NULL;
 }
 
 static int pi4_first_app_record_for_path(const char* path, uint64_t* app_record)
@@ -867,9 +912,9 @@ static int require_pi4_storage_file_tuple(const char* key, const uint64_t* file,
 
     if (file[4] != expected_lba || file[5] != expected_plan_sectors ||
         file[6] != expected_plan_bytes || file[7] > file[5] ||
-        (file[7] != file[5] && strcmp(key, "pi4app0") != 0 &&
-         strcmp(key, "pi4app1") != 0 && strcmp(key, "pi4manifest") != 0 &&
-         strcmp(key, "pi4wad") != 0 && strcmp(key, "pi4pak0") != 0)) {
+        (file[7] != file[5] && !pi4_app_record_field_index(key, NULL) &&
+         strcmp(key, "pi4manifest") != 0 && strcmp(key, "pi4wad") != 0 &&
+         strcmp(key, "pi4pak0") != 0)) {
         fprintf(stderr,
             "pi4_status_evidence: %s= read plan/count must prove a completed FAT file read\n",
             key);
@@ -892,6 +937,60 @@ static int require_pi4_storage_file_plan(const Field* fields, size_t count, cons
     if (!parse_hex64_tuple_exact(fields, count, key, 8, file))
         return 0;
     return require_pi4_storage_file_tuple(key, file, mbr, bpb, root);
+}
+
+static int reject_pi4_app_catalog_fields(const Field* fields, size_t count,
+    const char* gate)
+{
+    int ok = 1;
+    size_t i = 0;
+
+    for (i = 0; i < count; i++) {
+        if (pi4_app_record_field_index(fields[i].key, NULL)) {
+            fprintf(stderr, "pi4_status_evidence: %s=WAIT must not include %s=\n",
+                gate, fields[i].key);
+            ok = 0;
+        }
+    }
+    return ok;
+}
+
+static int require_pi4_app_catalog_evidence(const Field* fields, size_t count,
+    const uint64_t* mbr, const uint64_t* bpb, const uint64_t* root)
+{
+    int saw_first_apps[PI4_VIBE_FIRST_PROVEN_APP_COUNT] = {0};
+    uint64_t required = 0;
+    size_t i = 0;
+    int ok = 1;
+
+    for (i = 0; i < count; i++) {
+        uint64_t index = 0;
+
+        if (!pi4_app_record_field_index(fields[i].key, &index))
+            continue;
+        ok = require_pi4_storage_file_plan(fields, count, fields[i].key, mbr, bpb, root) &&
+            ok;
+        if (index < PI4_VIBE_FIRST_PROVEN_APP_COUNT)
+            saw_first_apps[index] = 1;
+    }
+
+    for (required = 0; required < PI4_VIBE_FIRST_PROVEN_APP_COUNT; required++) {
+        char app_key[PI4_APP_RECORD_KEY_BYTES];
+
+        if (!pi4_app_record_key_for_index(required, app_key, sizeof(app_key))) {
+            fprintf(stderr,
+                "pi4_status_evidence: could not format required Pi app catalog entry key\n");
+            ok = 0;
+            continue;
+        }
+        if (!saw_first_apps[required]) {
+            fprintf(stderr,
+                "pi4_status_evidence: pi4vfs=OK requires first app catalog entry %s=\n",
+                app_key);
+            ok = 0;
+        }
+    }
+    return ok;
 }
 
 static int require_pi4_storage_root_artifact(const Field* fields, size_t count,
@@ -1578,6 +1677,7 @@ static int check_storage_status(const Field* fields, size_t count)
         ok = reject_fields_for_gate(fields, count, "pi4sd", all_storage_fields,
                  ARRAY_COUNT(all_storage_fields)) &&
              ok;
+        ok = reject_pi4_app_catalog_fields(fields, count, "pi4sd") && ok;
         if (strcmp(fat, "WAIT") != 0 || strcmp(vfs, "WAIT") != 0) {
             fprintf(stderr,
                 "pi4_status_evidence: pi4sd=WAIT requires pi4fat=WAIT and pi4vfs=WAIT\n");
@@ -1605,6 +1705,7 @@ static int check_storage_status(const Field* fields, size_t count)
         ok = reject_fields_for_gate(fields, count, "pi4fat", fat_storage_fields,
                  ARRAY_COUNT(fat_storage_fields)) &&
              ok;
+        ok = reject_pi4_app_catalog_fields(fields, count, "pi4fat") && ok;
         if (strcmp(vfs, "WAIT") != 0) {
             fprintf(stderr, "pi4_status_evidence: pi4fat=WAIT requires pi4vfs=WAIT\n");
             ok = 0;
@@ -1638,8 +1739,7 @@ static int check_storage_status(const Field* fields, size_t count)
     ok = require_pi4_storage_root_artifact(fields, count, "pi4abiprobe") && ok;
     if (have_mbr && have_bpb && have_root) {
         ok = require_pi4_storage_file_plan(fields, count, "pi4init", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4app0", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4app1", mbr, bpb, root) && ok;
+        ok = require_pi4_app_catalog_evidence(fields, count, mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4manifest", mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4wad", mbr, bpb, root) && ok;
     } else {
@@ -1913,7 +2013,7 @@ static int require_pi4_app_vfs_evidence(const Field* fields, size_t count)
     uint64_t bpb[9];
     uint64_t root[4];
     const char* path = find_value(fields, count, "path");
-    const char* app_key = NULL;
+    char app_key[PI4_APP_RECORD_KEY_BYTES];
     uint64_t first_app_record = 0;
     size_t i = 0;
     int ok = 1;
@@ -1931,10 +2031,10 @@ static int require_pi4_app_vfs_evidence(const Field* fields, size_t count)
     if (!ok)
         return 0;
 
-    app_key = pi4_installed_app_record_key(appvfs[0]);
-    if (!app_key) {
+    if (!pi4_status_has_installed_app_record(fields, count, appvfs[0], app_key,
+            sizeof(app_key))) {
         fprintf(stderr,
-            "pi4_status_evidence: pi4appvfs= app record must name an installed APP.ELF record\n");
+            "pi4_status_evidence: pi4appvfs= app record must name a reported app catalog entry\n");
         return 0;
     }
     if (path && pi4_first_app_record_for_path(path, &first_app_record) &&

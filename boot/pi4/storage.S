@@ -76,13 +76,15 @@
 .equ PI4_STORAGE_DIRENT_ATTR_DIRECTORY, 0x10
 .equ PI4_STORAGE_READABLE_FILE_MIN_BYTES, 12
 .equ PI4_STORAGE_APP_RECORD_KIND_BASE,  7
-.equ PI4_STORAGE_APP_RECORD_COUNT,      2
 .equ PI4_STORAGE_APP_RECORD_BYTES,      40
+.equ PI4_STORAGE_APP_RECORD_TABLE_BYTES, 80
 .equ PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF, 0
 .equ PI4_STORAGE_APP_RECORD_NAME_OFF,   8
 .equ PI4_STORAGE_APP_RECORD_ELF_STATUS_OFF, 16
 .equ PI4_STORAGE_APP_RECORD_ELF_ENTRY_OFF, 24
 .equ PI4_STORAGE_APP_RECORD_MANIFEST_OFF, 32
+.equ PI4_STORAGE_REQUIRED_APP_RECORD_COUNT, 2
+.equ PI4_STORAGE_APP_RECORD_COUNT,      PI4_STORAGE_APP_RECORD_TABLE_BYTES / PI4_STORAGE_APP_RECORD_BYTES
 
 .macro PI4_STORAGE_LOAD_LE16 dst, base, off, tmp
     ldrb \dst, [\base, #\off]
@@ -1819,7 +1821,7 @@ pi4_storage_record_file_metadata:
 
 // x0 = directory buffer, x1 = directory bytes, x2 = directory kind:
 // 0 = /PROOF, 1 = /ASSETS, 2 = /ASSETS/MAPS, 3 = /ASSETS/TEXTURES, 4 = /ID1,
-// 5 = /SYSTEM, 6 = /APPS, 7..8 = recorded /APPS child records.
+// 5 = /SYSTEM, 6 = /APPS, 7.. = recorded /APPS child records.
 // Returns w0 = number of expected entries recorded from the directory buffer.
 .global pi4_storage_parse_asset_dir
 .type pi4_storage_parse_asset_dir, %function
@@ -2077,7 +2079,27 @@ pi4_storage_parse_asset_dir:
     ldrb w3, [x22]
     cmp w3, #0x2e
     b.eq .Lpi4_storage_asset_dir_next
+    mov x0, x22
+    adr x1, pi4_storage_name_doom_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_doom_app
+    mov x0, x22
+    adr x1, pi4_storage_name_quake_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_quake_app
     bl pi4_storage_find_free_app_dir_record
+    b .Lpi4_storage_asset_dir_record_app_dir
+
+.Lpi4_storage_asset_dir_record_doom_app:
+    mov x0, #0
+    bl pi4_storage_find_empty_app_dir_record
+    b .Lpi4_storage_asset_dir_record_app_dir
+
+.Lpi4_storage_asset_dir_record_quake_app:
+    mov x0, #1
+    bl pi4_storage_find_empty_app_dir_record
+
+.Lpi4_storage_asset_dir_record_app_dir:
     cbz x0, .Lpi4_storage_asset_dir_next
     mov x19, x0
     mov x0, x22
@@ -2086,6 +2108,7 @@ pi4_storage_parse_asset_dir:
     mov x1, x23
     mov x2, x19
     bl pi4_storage_record_dirent_metadata4
+    bl pi4_storage_note_app_record_active
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
@@ -2153,7 +2176,8 @@ pi4_storage_parse_asset_dir:
 .type pi4_storage_find_free_app_dir_record, %function
 pi4_storage_find_free_app_dir_record:
     adr x2, pi4_storage_app_records
-    mov x3, #PI4_STORAGE_APP_RECORD_COUNT
+    add x2, x2, #(PI4_STORAGE_REQUIRED_APP_RECORD_COUNT * PI4_STORAGE_APP_RECORD_BYTES)
+    mov x3, #(PI4_STORAGE_APP_RECORD_COUNT - PI4_STORAGE_REQUIRED_APP_RECORD_COUNT)
 .Lpi4_storage_find_free_app_dir_record_loop:
     cbz x3, .Lpi4_storage_find_free_app_dir_record_none
     ldr x0, [x2, #PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF]
@@ -2171,6 +2195,24 @@ pi4_storage_find_free_app_dir_record:
     ret
 .size pi4_storage_find_free_app_dir_record, . - pi4_storage_find_free_app_dir_record
 
+.type pi4_storage_find_empty_app_dir_record, %function
+pi4_storage_find_empty_app_dir_record:
+    cmp x0, #PI4_STORAGE_APP_RECORD_COUNT
+    b.hs .Lpi4_storage_find_empty_app_dir_record_none
+    adr x2, pi4_storage_app_records
+    mov x1, #PI4_STORAGE_APP_RECORD_BYTES
+    madd x2, x0, x1, x2
+    ldr x0, [x2, #PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF]
+    ldr x4, [x0]
+    cbnz x4, .Lpi4_storage_find_empty_app_dir_record_none
+    ldr x1, [x2, #PI4_STORAGE_APP_RECORD_NAME_OFF]
+    ret
+.Lpi4_storage_find_empty_app_dir_record_none:
+    mov x0, xzr
+    mov x1, xzr
+    ret
+.size pi4_storage_find_empty_app_dir_record, . - pi4_storage_find_empty_app_dir_record
+
 .type pi4_storage_app_record, %function
 pi4_storage_app_record:
     cmp x0, #PI4_STORAGE_APP_RECORD_COUNT
@@ -2183,6 +2225,15 @@ pi4_storage_app_record:
     mov x0, xzr
     ret
 .size pi4_storage_app_record, . - pi4_storage_app_record
+
+.type pi4_storage_note_app_record_active, %function
+pi4_storage_note_app_record_active:
+    adr x0, pi4_storage_status_app_record_active_count
+    ldr x1, [x0]
+    add x1, x1, #1
+    str x1, [x0]
+    ret
+.size pi4_storage_note_app_record_active, . - pi4_storage_note_app_record_active
 
 .type pi4_storage_note_default_asset_file, %function
 pi4_storage_note_default_asset_file:
@@ -2242,6 +2293,10 @@ pi4_storage_name_system_dir:
     .ascii "SYSTEM     "
 pi4_storage_name_apps_dir:
     .ascii "APPS       "
+pi4_storage_name_doom_dir:
+    .ascii "DOOM       "
+pi4_storage_name_quake_dir:
+    .ascii "QUAKE      "
 pi4_storage_name_index_txt:
     .ascii "INDEX   TXT"
 pi4_storage_name_app_elf:
@@ -2260,6 +2315,10 @@ pi4_storage_app_records:
     .quad pi4_storage_status_app1_elf
     .quad pi4_storage_status_app1_elf_entry_index
     .quad pi4_storage_status_app1_manifest
+pi4_storage_app_records_end:
+.if (pi4_storage_app_records_end - pi4_storage_app_records) != PI4_STORAGE_APP_RECORD_TABLE_BYTES
+.error "PI4 storage app record table size does not match capacity bytes"
+.endif
 
 .section .pi4_storage_status, "aw", %progbits
 .balign 8
@@ -2732,6 +2791,9 @@ pi4_storage_status_app_index:
     .quad 0
     .quad 0
     .quad 0
+    .quad 0
+.global pi4_storage_status_app_record_active_count
+pi4_storage_status_app_record_active_count:
     .quad 0
 .global pi4_storage_status_app0_dir
 pi4_storage_status_app0_dir:

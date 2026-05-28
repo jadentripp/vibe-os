@@ -407,7 +407,7 @@ jobs:
           persistence_write_script="$PERSISTENCE_INPUT_SCRIPT"
           persistence_load_script="$PERSISTENCE_LOAD_INPUT_SCRIPT"
           persistence_default_script=""
-          slot_marker_payload=""
+          slot_marker_value=""
           save_description=""
           save_write_timeout="${PERSISTENCE_SAVE_WRITE_TIMEOUT:-45}"
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
@@ -418,7 +418,7 @@ jobs:
                 exit 1
                 ;;
             esac
-            slot_marker_payload="$(printf '%*s' "$((PERSISTENCE_SAVE_SLOT + 1))" '' | tr ' ' X)"
+            slot_marker_value="$(printf '%*s' "$((PERSISTENCE_SAVE_SLOT + 1))" '' | tr ' ' X)"
             save_description="VIBE SAVE"
             if [ "$persistence_write_script" = "auto" ]; then
               persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,hold=up:1200,wait-status-min=leveltime:00000004:80:2,wait-status-part-min=savewr:1:00000001:${save_write_timeout}:2,wait-status-min=saveclose:00000001:120:2,snapshot"
@@ -441,8 +441,8 @@ jobs:
 
           write_marker() {
             local marker_name="$1"
-            local marker_payload="${2:-}"
-            build/make_wad_image --write-root-marker "$marker_name" "$marker_payload" build/disk.img
+            local marker_value="${2:-}"
+            build/make_wad_image --write-root-marker "$marker_name" "$marker_value" build/disk.img
           }
 
           delete_marker() {
@@ -455,7 +455,7 @@ jobs:
           if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             write_marker PERSISTENCE_CHECKPOINT_NAME ""
           else
-            write_marker SAVE_REQUEST_NAME "$slot_marker_payload"
+            write_marker SAVE_REQUEST_NAME "$slot_marker_value"
           fi
 
           mkdir -p build/persistence-write
@@ -523,7 +523,7 @@ jobs:
               PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 \
               | tee build/status.persistence-default-proof.txt
             cp build/disk.img "$after_write"
-            write_marker LOAD_REQUEST_NAME "$slot_marker_payload"
+            write_marker LOAD_REQUEST_NAME "$slot_marker_value"
 
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \

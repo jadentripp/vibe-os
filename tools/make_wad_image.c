@@ -163,7 +163,6 @@ static const char PI4_APP_LAYOUT[] = "system-init-plus-apps-tree";
 static const char PI4_APP_DISCOVERY_MODEL[] = "vfs-app-index";
 static const char PI4_APP_EXEC_MODEL[] = "generic-aarch64-el0-elf-by-path";
 static const char PI4_APP_LAUNCH_MODEL[] = "generic-path-exec";
-static const char PI4_APP_LEGACY_PREFIX[] = "app";
 static const char PI4_APP_RECORD_PREFIX[] = "app_record";
 static const char PI4_APP_RECORD_COUNT_KEY[] = "app_record_count";
 static const char DEFAULT_PI4_ASSET_README_PATH[] = "/ASSETS/README.TXT";
@@ -1019,53 +1018,12 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     load_pi4_app_catalog(image, &app_catalog, require_real_assets);
     print_pi4_app_index_status(&app_catalog);
     snprintf(app_count_value, sizeof(app_count_value), "%zu", app_catalog.app_count);
-    manifest_require_value(&manifest, "app_count", app_count_value);
-    inspect_manifest_print_field(&manifest, "app_count");
-    for (size_t i = 0; i < app_catalog.app_count; i++) {
-        Pi4AppInstall* app = &app_catalog.apps[i];
-        char key[64];
-        char size_key[64];
-
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "id");
-        manifest_require_value(&manifest, key, app->id);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "name");
-        manifest_require_value(&manifest, key, app->name);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "manifest");
-        manifest_indexed_key(size_key, sizeof(size_key), PI4_APP_LEGACY_PREFIX, i, "manifest_size");
-        manifest_require_value(&manifest, key, app->manifest_path);
-        inspect_manifest_print_field(&manifest, key);
-        inspect_manifest_require_file(image, &manifest, app->manifest_path, size_key, NULL, &checked_files);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "exec");
-        manifest_indexed_key(size_key, sizeof(size_key), PI4_APP_LEGACY_PREFIX, i, "exec_size");
-        manifest_require_value(&manifest, key, app->exec_path);
-        inspect_manifest_print_field(&manifest, key);
-        inspect_manifest_require_file(image, &manifest, app->exec_path, size_key, NULL, &checked_files);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "launch");
-        manifest_require_value(&manifest, key, PI4_APP_LAUNCH_MODEL);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "exec_model");
-        manifest_require_value(&manifest, key, PI4_APP_EXEC_MODEL);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "resource");
-        manifest_require_value(&manifest, key, app->asset_path);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "asset");
-        manifest_require_value(&manifest, key, app->asset_path);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "icon");
-        manifest_require_value(&manifest, key, app->icon);
-        inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "hardware_proof");
-        manifest_require_value(&manifest, key, "unclaimed");
-        inspect_manifest_print_field(&manifest, key);
-        print_pi4_app_manifest_status(app);
-    }
     manifest_require_value(&manifest, PI4_APP_RECORD_COUNT_KEY, app_count_value);
     inspect_manifest_print_field(&manifest, PI4_APP_RECORD_COUNT_KEY);
-    for (size_t i = 0; i < app_catalog.app_count; i++)
+    for (size_t i = 0; i < app_catalog.app_count; i++) {
         inspect_manifest_require_app_record_fields(&manifest, PI4_APP_RECORD_PREFIX, i, &app_catalog.apps[i]);
+        print_pi4_app_manifest_status(&app_catalog.apps[i]);
+    }
 
     size_t root_file_count = manifest_require_count(&manifest, "root_file_count");
     inspect_manifest_print_field(&manifest, "root_file_count");
@@ -2116,14 +2074,6 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
     manifest_write_app_file(&text, "system_init", system_init);
     manifest_write_app_file(&text, "system_abiprobe", system_abiprobe);
     manifest_write_app_file(&text, "app_index", app_index);
-    text_appendf(&text, "app_count=%zu\n", app_catalog.app_count);
-    for (size_t i = 0; i < app_catalog.app_count; i++) {
-        const Pi4AppInstall* app = &app_catalog.apps[i];
-        const ManifestEntry* app_manifest = proof_manifest_require_asset(manifest, app->manifest_path);
-        const ManifestEntry* app_exec = proof_manifest_require_asset(manifest, app->exec_path);
-
-        manifest_write_app_install_fields(&text, PI4_APP_LEGACY_PREFIX, i, app, app_manifest, app_exec);
-    }
     text_appendf(&text, "%s=%zu\n", PI4_APP_RECORD_COUNT_KEY, app_catalog.app_count);
     for (size_t i = 0; i < app_catalog.app_count; i++) {
         const Pi4AppInstall* app = &app_catalog.apps[i];

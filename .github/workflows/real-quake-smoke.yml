@@ -3,7 +3,7 @@ name: Real Quake smoke
 on:
   push:
     branches:
-      - jt/quake-ring3-payload
+      - jt/asm-replace-c-tools
   workflow_dispatch:
     inputs:
       quake_pak_url:

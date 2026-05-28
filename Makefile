@@ -1512,26 +1512,26 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-lin
 		handoff_inspect_line "manifest_app_index_path" "app_index=/APPS/INDEX.TXT"; \
 		handoff_inspect_line "manifest_app_index_file" "manifest_file=/APPS/INDEX.TXT state=present"; \
 		handoff_inspect_line "manifest_app_index_status" "app_index_manifest=/APPS/INDEX.TXT state=present"; \
-		handoff_inspect_line "manifest_doom_app_manifest_path" "app.0.manifest=/APPS/DOOM/APP.TXT"; \
+		handoff_inspect_line "manifest_doom_app_manifest_path" "app_record.0.manifest=/APPS/DOOM/APP.TXT"; \
 		handoff_inspect_line "manifest_doom_app_manifest_file" "manifest_file=/APPS/DOOM/APP.TXT state=present"; \
 		handoff_inspect_line "manifest_doom_app_manifest_status" "app_manifest=/APPS/DOOM/APP.TXT state=present"; \
-		handoff_inspect_line "manifest_doom_app_exec_path" "app.0.exec=/APPS/DOOM/APP.ELF"; \
+		handoff_inspect_line "manifest_doom_app_exec_path" "app_record.0.exec=/APPS/DOOM/APP.ELF"; \
 		handoff_inspect_line "manifest_doom_app_exec_file" "manifest_file=/APPS/DOOM/APP.ELF state=present"; \
 		handoff_inspect_line "manifest_doom_app_exec_status" "app_exec=/APPS/DOOM/APP.ELF state=present"; \
-		handoff_inspect_line "manifest_doom_app_launch" "app.0.launch=generic-path-exec"; \
-		handoff_inspect_line "manifest_doom_app_exec_model" "app.0.exec_model=generic-aarch64-el0-elf-by-path"; \
-		handoff_inspect_line "manifest_doom_app_resource" "app.0.resource=/DOOM1.WAD"; \
-		handoff_inspect_line "manifest_doom_app_icon" "app.0.icon=wad:TITLEPIC"; \
-		handoff_inspect_line "manifest_quake_app_manifest_path" "app.1.manifest=/APPS/QUAKE/APP.TXT"; \
+		handoff_inspect_line "manifest_doom_app_launch" "app_record.0.launch=generic-path-exec"; \
+		handoff_inspect_line "manifest_doom_app_exec_model" "app_record.0.exec_model=generic-aarch64-el0-elf-by-path"; \
+		handoff_inspect_line "manifest_doom_app_resource" "app_record.0.resource=/DOOM1.WAD"; \
+		handoff_inspect_line "manifest_doom_app_icon" "app_record.0.icon=wad:TITLEPIC"; \
+		handoff_inspect_line "manifest_quake_app_manifest_path" "app_record.1.manifest=/APPS/QUAKE/APP.TXT"; \
 		handoff_inspect_line "manifest_quake_app_manifest_file" "manifest_file=/APPS/QUAKE/APP.TXT state=present"; \
 		handoff_inspect_line "manifest_quake_app_manifest_status" "app_manifest=/APPS/QUAKE/APP.TXT state=present"; \
-		handoff_inspect_line "manifest_quake_app_exec_path" "app.1.exec=/APPS/QUAKE/APP.ELF"; \
+		handoff_inspect_line "manifest_quake_app_exec_path" "app_record.1.exec=/APPS/QUAKE/APP.ELF"; \
 		handoff_inspect_line "manifest_quake_app_exec_file" "manifest_file=/APPS/QUAKE/APP.ELF state=present"; \
 		handoff_inspect_line "manifest_quake_app_exec_status" "app_exec=/APPS/QUAKE/APP.ELF state=present"; \
-		handoff_inspect_line "manifest_quake_app_launch" "app.1.launch=generic-path-exec"; \
-		handoff_inspect_line "manifest_quake_app_exec_model" "app.1.exec_model=generic-aarch64-el0-elf-by-path"; \
-		handoff_inspect_line "manifest_quake_app_resource" "app.1.resource=/ID1/PAK0.PAK"; \
-		handoff_inspect_line "manifest_quake_app_icon" "app.1.icon=pak:gfx/conback.lmp"; \
+		handoff_inspect_line "manifest_quake_app_launch" "app_record.1.launch=generic-path-exec"; \
+		handoff_inspect_line "manifest_quake_app_exec_model" "app_record.1.exec_model=generic-aarch64-el0-elf-by-path"; \
+		handoff_inspect_line "manifest_quake_app_resource" "app_record.1.resource=/ID1/PAK0.PAK"; \
+		handoff_inspect_line "manifest_quake_app_icon" "app_record.1.icon=pak:gfx/conback.lmp"; \
 		handoff_inspect_line "manifest_doom_wad" "manifest_file=DOOM1.WAD state=present"; \
 		handoff_inspect_line "manifest_doom_asset" "manifest_asset=DOOM1.WAD kind=doom-wad source=external"; \
 		handoff_inspect_line "manifest_quake_pak" "manifest_file=/ID1/PAK0.PAK state=present"; \
@@ -2056,28 +2056,30 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -F -q "app_index=/APPS/INDEX.TXT" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/INDEX.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_index_manifest=/APPS/INDEX.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.id=doom" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.name=DOOM" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.manifest=/APPS/DOOM/APP.TXT" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.launch=generic-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.resource=/DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.0.icon=wad:TITLEPIC" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.id=doom" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.name=DOOM" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.manifest=/APPS/DOOM/APP.TXT" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.launch=generic-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.resource=/DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.0.icon=wad:TITLEPIC" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/DOOM/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/DOOM/APP.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_manifest=/APPS/DOOM/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_exec=/APPS/DOOM/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=doom" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_icon=wad:TITLEPIC state=manifest app=doom" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_resource=/DOOM1.WAD state=present app=doom" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.id=quake" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.name=Quake" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.manifest=/APPS/QUAKE/APP.TXT" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.launch=generic-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.resource=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.id=quake" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.name=Quake" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.manifest=/APPS/QUAKE/APP.TXT" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.launch=generic-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.resource=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_record.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE_INSPECT_TXT)"
+	@! grep -F -q "app.0.exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
+	@! grep -F -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/QUAKE/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/QUAKE/APP.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_manifest=/APPS/QUAKE/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
@@ -2102,14 +2104,14 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -a -q "system_init=/SYSTEM/INIT.ELF" "$(PI4_IMAGE)"
 	@grep -a -q "system_abiprobe=/SYSTEM/ABIPROBE.ELF" "$(PI4_IMAGE)"
 	@grep -a -q "app_index=/APPS/INDEX.TXT" "$(PI4_IMAGE)"
-	@grep -a -q "app.0.manifest=/APPS/DOOM/APP.TXT" "$(PI4_IMAGE)"
-	@grep -a -q "app.0.exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "app.0.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
-	@grep -a -q "app.0.icon=wad:TITLEPIC" "$(PI4_IMAGE)"
-	@grep -a -q "app.1.manifest=/APPS/QUAKE/APP.TXT" "$(PI4_IMAGE)"
-	@grep -a -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
-	@grep -a -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.0.manifest=/APPS/DOOM/APP.TXT" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.0.exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.0.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.0.icon=wad:TITLEPIC" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.1.manifest=/APPS/QUAKE/APP.TXT" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
+	@grep -a -q "app_record.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf_count=0" "$(PI4_IMAGE)"
 	@! grep -a -E -q "root_elf\.[0-9]+\.file=(INIT|ABIPROBE)\.ELF" "$(PI4_IMAGE)"
 	@grep -q "primary_asset_file=DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"

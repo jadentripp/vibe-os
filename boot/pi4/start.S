@@ -225,7 +225,7 @@
 .equ PI4_VIBE_SEEK_SET,                 0
 .equ PI4_VIBE_SEEK_CUR,                 1
 .equ PI4_VIBE_SEEK_END,                 2
-.equ PI4_VIBE_APP_RECORD_COUNT,     2
+.equ PI4_VIBE_REQUIRED_APP_RECORD_COUNT, 2
 .equ PI4_VIBE_APP_RECORD_DIR_NAME,  0
 .equ PI4_VIBE_APP_RECORD_ELF_META,  8
 .equ PI4_VIBE_APP_RECORD_ELF_OFFSET, 16
@@ -236,6 +236,8 @@
 .equ PI4_VIBE_APP_RECORD_DIR_STATUS, 56
 .equ PI4_VIBE_APP_RECORD_STATUS_LABEL, 64
 .equ PI4_VIBE_APP_RECORD_BYTES,     72
+.equ PI4_VIBE_APP_RECORD_TABLE_BYTES, 144
+.equ PI4_VIBE_APP_RECORD_COUNT,     PI4_VIBE_APP_RECORD_TABLE_BYTES / PI4_VIBE_APP_RECORD_BYTES
 .equ PI4_VIBE_EXEC_REQUEST_ABI_VERSION, 1
 .equ PI4_VIBE_EXEC_REQUEST_BYTES,       32
 .equ PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES, 64
@@ -464,7 +466,7 @@
 .equ PI4_PROC_KIND_EL0_PROBE,           1
 .equ PI4_PROC_KIND_INIT,                2
 .equ PI4_PROC_KIND_APP_BASE,        3
-.equ PI4_PROC_KIND_APP_COUNT,       2
+.equ PI4_PROC_KIND_APP_COUNT,       PI4_VIBE_APP_RECORD_COUNT
 .equ PI4_PROC_PID_INIT,                 1
 .equ PI4_PROC_PID_NEXT_INIT,            2
 .equ PI4_PROC_PID_APP_FIRST,        2
@@ -2843,9 +2845,12 @@ pi4_prepare_storage_scan_app_dirs:
     cmp x20, #PI4_VIBE_APP_RECORD_COUNT
     b.hs .Lpi4_prepare_storage_scan_app_dirs_done
     ldr x0, [x19, #PI4_VIBE_APP_RECORD_DIR_STATUS]
+    ldr x2, [x0]
+    cbz x2, .Lpi4_prepare_storage_scan_app_dirs_step
     mov x1, #PI4_START_STORAGE_ASSET_DIR_APP_BASE
     add x1, x1, x20
     bl pi4_prepare_storage_scan_dir_cluster
+.Lpi4_prepare_storage_scan_app_dirs_step:
     add x19, x19, #PI4_VIBE_APP_RECORD_BYTES
     add x20, x20, #1
     b .Lpi4_prepare_storage_scan_app_dirs_next
@@ -2861,20 +2866,32 @@ pi4_app_records_have_file_status:
     mov x1, x0
     adr x2, pi4_app_file_record_table
     mov x3, xzr
+    mov x7, xzr
     ldr w6, =PI4_START_STORAGE_FILE_OK
 .Lpi4_app_records_have_file_status_next:
     cmp x3, #PI4_VIBE_APP_RECORD_COUNT
     b.hs .Lpi4_app_records_have_file_status_ok
+    ldr x8, [x2, #PI4_VIBE_APP_RECORD_DIR_STATUS]
+    ldr x8, [x8]
+    cbnz x8, .Lpi4_app_records_have_file_status_active
+    cmp x3, #PI4_VIBE_REQUIRED_APP_RECORD_COUNT
+    b.lo .Lpi4_app_records_have_file_status_bad
+    b .Lpi4_app_records_have_file_status_step
+.Lpi4_app_records_have_file_status_active:
+    add x7, x7, #1
     add x4, x2, x1
     ldr x4, [x4]
     ldr w5, [x4]
     cmp w5, w6
     b.ne .Lpi4_app_records_have_file_status_bad
+.Lpi4_app_records_have_file_status_step:
     add x2, x2, #PI4_VIBE_APP_RECORD_BYTES
     add x3, x3, #1
     b .Lpi4_app_records_have_file_status_next
 
 .Lpi4_app_records_have_file_status_ok:
+    cmp x7, #PI4_VIBE_REQUIRED_APP_RECORD_COUNT
+    b.lo .Lpi4_app_records_have_file_status_bad
     mov x0, #1
     ret
 .Lpi4_app_records_have_file_status_bad:
@@ -4711,10 +4728,14 @@ pi4_uart_write_storage_app_record_tuples:
 .Lpi4_uart_write_storage_app_record_tuples_next:
     cmp x20, #PI4_VIBE_APP_RECORD_COUNT
     b.hs .Lpi4_uart_write_storage_app_record_tuples_done
+    ldr x0, [x19, #PI4_VIBE_APP_RECORD_DIR_STATUS]
+    ldr x0, [x0]
+    cbz x0, .Lpi4_uart_write_storage_app_record_tuples_step
     ldr x0, [x19, #PI4_VIBE_APP_RECORD_STATUS_LABEL]
     ldr x1, [x19, #PI4_VIBE_APP_RECORD_ELF_META]
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
+.Lpi4_uart_write_storage_app_record_tuples_step:
     add x19, x19, #PI4_VIBE_APP_RECORD_BYTES
     add x20, x20, #1
     b .Lpi4_uart_write_storage_app_record_tuples_next
@@ -9889,11 +9910,15 @@ pi4_user_file_lookup_app_path:
 .Lpi4_lookup_app_path_next:
     cmp x22, #PI4_VIBE_APP_RECORD_COUNT
     b.hs .Lpi4_lookup_app_path_none
+    ldr x0, [x23, #PI4_VIBE_APP_RECORD_DIR_STATUS]
+    ldr x0, [x0]
+    cbz x0, .Lpi4_lookup_app_path_step
     mov x0, x19
     ldr x1, [x23, #PI4_VIBE_APP_RECORD_DIR_NAME]
     mov x2, x20
     bl pi4_kernel_el0_app_path_match
     cbnz x0, .Lpi4_lookup_app_path_match
+.Lpi4_lookup_app_path_step:
     add x23, x23, #PI4_VIBE_APP_RECORD_BYTES
     add x22, x22, #1
     b .Lpi4_lookup_app_path_next
@@ -12557,6 +12582,10 @@ pi4_app_file_record_table:
     .quad pi4_storage_status_app1_elf_read_count
     .quad pi4_storage_status_app1_dir
     .quad msg_status_pi4app_record1
+pi4_app_file_record_table_end:
+.if (pi4_app_file_record_table_end - pi4_app_file_record_table) != PI4_VIBE_APP_RECORD_TABLE_BYTES
+.error "PI4 app file record table size does not match capacity bytes"
+.endif
 pi4_user_file_doom1_path:
     .asciz "DOOM1.WAD"
 pi4_user_file_pak0_path:

@@ -256,8 +256,13 @@
 #define PI4_VIBE_FB_RGB24_PALETTE_BYTES 768ull
 #define PI4_VIBE_APP_DOOM 0ull
 #define PI4_VIBE_APP_QUAKE 1ull
-#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF 12ull
-#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF 13ull
+#define PI4_VIBE_FILE_ASSET_APP_ELF_BASE 12ull
+#define PI4_VIBE_FIRST_PROVEN_APP_COUNT 2ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF \
+    (PI4_VIBE_FILE_ASSET_APP_ELF_BASE + 0ull)
+#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF \
+    (PI4_VIBE_FILE_ASSET_APP_ELF_BASE + 1ull)
+#define PI4_APP_RECORD_KEY_BYTES 32u
 #define PI4_VIBE_FD_DOOM1_WAD 3ull
 #define PI4_VIBE_FD_PAK0_PAK 4ull
 #define PI4_VIBE_ENOENT 2ull
@@ -691,14 +696,55 @@ static int is_pi4_user_exec_path(const char *path) {
            is_pi4_installed_app_path(path);
 }
 
-static const char *pi4_installed_app_record_key(uint64_t app_record) {
-    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF) {
-        return "pi4app0";
+static int pi4_app_record_field_index(const char *name, uint64_t *index) {
+    static const char prefix[] = "pi4app";
+    const char *p;
+    uint64_t value = 0u;
+
+    if (strncmp(name, prefix, sizeof(prefix) - 1u) != 0) {
+        return 0;
     }
-    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF) {
-        return "pi4app1";
+    p = name + sizeof(prefix) - 1u;
+    if (!isdigit((unsigned char)*p)) {
+        return 0;
     }
-    return NULL;
+    for (; *p; p++) {
+        uint64_t digit;
+
+        if (!isdigit((unsigned char)*p)) {
+            return 0;
+        }
+        digit = (uint64_t)(*p - '0');
+        if (value > (UINT64_MAX - digit) / 10u) {
+            return 0;
+        }
+        value = value * 10u + digit;
+    }
+    if (index) {
+        *index = value;
+    }
+    return 1;
+}
+
+static int pi4_app_record_key_for_index(uint64_t index, char *key, size_t key_size) {
+    int written = snprintf(key, key_size, "pi4app%llu", (unsigned long long)index);
+
+    return written > 0 && (size_t)written < key_size;
+}
+
+static int pi4_app_record_key_for_elf_asset(uint64_t app_record, char *key,
+                                            size_t key_size) {
+    if (app_record < PI4_VIBE_FILE_ASSET_APP_ELF_BASE) {
+        return 0;
+    }
+    return pi4_app_record_key_for_index(app_record - PI4_VIBE_FILE_ASSET_APP_ELF_BASE,
+                                        key, key_size);
+}
+
+static int pi4_status_has_installed_app_record(const Status *status, uint64_t app_record,
+                                               char *key, size_t key_size) {
+    return pi4_app_record_key_for_elf_asset(app_record, key, key_size) &&
+           has_field(status, key);
 }
 
 static int pi4_first_app_record_for_path(const char *path, uint64_t *app_record) {
@@ -2422,9 +2468,9 @@ static void validate_pi4_storage_file_tuple(const uint64_t *mbr, const uint64_t 
         strcmp(name, "pi4pak0") != 0) {
         fail("%s= read count cannot exceed the planned first-cluster read", name);
     }
-    if (file[7] != file[5] && strcmp(name, "pi4app0") != 0 &&
-        strcmp(name, "pi4app1") != 0 && strcmp(name, "pi4manifest") != 0 &&
-        strcmp(name, "pi4wad") != 0 && strcmp(name, "pi4pak0") != 0) {
+    if (file[7] != file[5] && !pi4_app_record_field_index(name, NULL) &&
+        strcmp(name, "pi4manifest") != 0 && strcmp(name, "pi4wad") != 0 &&
+        strcmp(name, "pi4pak0") != 0) {
         fail("%s= read count must prove the full planned first-cluster read completed", name);
     }
 }
@@ -2438,20 +2484,61 @@ static void validate_pi4_storage_file_evidence(const Status *status, const uint6
     validate_pi4_storage_file_tuple(mbr, bpb, root, name, file);
 }
 
+static void reject_pi4_app_catalog_fields(const Status *status, const char *state) {
+    size_t i;
+
+    for (i = 0; i < status->count; i++) {
+        if (pi4_app_record_field_index(status->fields[i].name, NULL)) {
+            fail("%s must not include %s=", state, status->fields[i].name);
+        }
+    }
+}
+
+static void validate_pi4_app_catalog_evidence(const Status *status, const uint64_t *mbr,
+                                              const uint64_t *bpb, const uint64_t *root) {
+    uint64_t required;
+    size_t i;
+    int saw_first_apps[PI4_VIBE_FIRST_PROVEN_APP_COUNT] = {0};
+
+    for (i = 0; i < status->count; i++) {
+        uint64_t index;
+
+        if (!pi4_app_record_field_index(status->fields[i].name, &index)) {
+            continue;
+        }
+        validate_pi4_storage_file_evidence(status, mbr, bpb, root,
+                                           status->fields[i].name);
+        if (index < PI4_VIBE_FIRST_PROVEN_APP_COUNT) {
+            saw_first_apps[index] = 1;
+        }
+    }
+
+    for (required = 0u; required < PI4_VIBE_FIRST_PROVEN_APP_COUNT; required++) {
+        char app_key[PI4_APP_RECORD_KEY_BYTES];
+
+        if (!pi4_app_record_key_for_index(required, app_key, sizeof(app_key))) {
+            fail("could not format required Pi app catalog entry key");
+        }
+        if (!saw_first_apps[required]) {
+            fail("pi4vfs=OK requires first app catalog entry %s=", app_key);
+        }
+    }
+}
+
 static void validate_pi4_app_vfs_evidence(const Status *status, uint64_t app_record) {
     uint64_t appvfs[10];
     uint64_t mbr[6];
     uint64_t bpb[9];
     uint64_t root[4];
-    const char *app_key;
+    char app_key[PI4_APP_RECORD_KEY_BYTES];
     const char *path = field(status, "path");
 
     if (!is_pi4_installed_app_path(path)) {
         fail("path= must be an installed /APPS/.../APP.ELF executable for pi4appvfs=");
     }
-    app_key = pi4_installed_app_record_key(app_record);
-    if (!app_key) {
-        fail("pi4appvfs= requires an installed app record selected by pi4appreq=");
+    if (!pi4_status_has_installed_app_record(status, app_record, app_key,
+                                             sizeof(app_key))) {
+        fail("pi4appvfs= requires a reported app catalog entry selected by pi4appreq=");
     }
 
     exact(status, "pi4vfs", "OK");
@@ -2794,6 +2881,7 @@ static void validate_pi4_storage_status(const Status *status) {
 
     if (strcmp(sd, "WAIT") == 0) {
         reject_fields(status, "pi4sd=WAIT", all_storage_fields, ARRAY_LEN(all_storage_fields));
+        reject_pi4_app_catalog_fields(status, "pi4sd=WAIT");
         if (strcmp(fat, "WAIT") != 0 || strcmp(vfs, "WAIT") != 0) {
             fail("pi4sd=WAIT requires pi4fat=WAIT and pi4vfs=WAIT");
         }
@@ -2813,6 +2901,7 @@ static void validate_pi4_storage_status(const Status *status) {
 
     if (strcmp(fat, "WAIT") == 0) {
         reject_fields(status, "pi4fat=WAIT", fat_storage_fields, ARRAY_LEN(fat_storage_fields));
+        reject_pi4_app_catalog_fields(status, "pi4fat=WAIT");
         if (strcmp(vfs, "WAIT") != 0) {
             fail("pi4fat=WAIT requires pi4vfs=WAIT");
         }
@@ -2829,8 +2918,7 @@ static void validate_pi4_storage_status(const Status *status) {
     }
     if (strcmp(vfs, "OK") == 0) {
         validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4init");
-        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4app0");
-        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4app1");
+        validate_pi4_app_catalog_evidence(status, mbr, bpb, root);
         validate_pi4_storage_asset_evidence(status, mbr, bpb, root);
         return;
     }
@@ -3430,6 +3518,7 @@ static uint64_t validate_pi4_app_request_evidence(const Status *status,
                                                   const uint64_t *request) {
     uint64_t app_request[6];
     uint64_t first_app_record;
+    char app_key[PI4_APP_RECORD_KEY_BYTES];
     const char *path = field(status, "path");
     uint64_t path_bytes = (uint64_t)strlen(path);
 
@@ -3451,8 +3540,8 @@ static uint64_t validate_pi4_app_request_evidence(const Status *status,
     if (app_request[4] != path_bytes) {
         fail("pi4appreq= path byte count must match the selected /APPS path");
     }
-    if (!pi4_installed_app_record_key(app_request[5])) {
-        fail("pi4appreq= matched app record must name an installed APP.ELF record");
+    if (!pi4_app_record_key_for_elf_asset(app_request[5], app_key, sizeof(app_key))) {
+        fail("pi4appreq= matched app record must name an APP.ELF catalog entry");
     }
     if (pi4_first_app_record_for_path(path, &first_app_record) &&
         app_request[5] != first_app_record) {
