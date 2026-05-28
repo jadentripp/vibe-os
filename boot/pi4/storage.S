@@ -1655,6 +1655,21 @@ pi4_storage_match_short_name:
     ret
 .size pi4_storage_match_short_name, . - pi4_storage_match_short_name
 
+.type pi4_storage_copy_short_name, %function
+pi4_storage_copy_short_name:
+    mov x2, xzr
+.Lpi4_storage_copy_short_name_loop:
+    cmp x2, #11
+    b.hs .Lpi4_storage_copy_short_name_done
+    ldrb w3, [x0, x2]
+    strb w3, [x1, x2]
+    add x2, x2, #1
+    b .Lpi4_storage_copy_short_name_loop
+.Lpi4_storage_copy_short_name_done:
+    strb wzr, [x1, #11]
+    ret
+.size pi4_storage_copy_short_name, . - pi4_storage_copy_short_name
+
 .type pi4_storage_record_dirent_metadata4, %function
 pi4_storage_record_dirent_metadata4:
     add x1, x1, #1
@@ -1796,7 +1811,7 @@ pi4_storage_record_file_metadata:
 
 // x0 = directory buffer, x1 = directory bytes, x2 = directory kind:
 // 0 = /PROOF, 1 = /ASSETS, 2 = /ASSETS/MAPS, 3 = /ASSETS/TEXTURES, 4 = /ID1,
-// 5 = /SYSTEM, 6 = /APPS, 7 = /APPS/DOOM, 8 = /APPS/QUAKE.
+// 5 = /SYSTEM, 6 = /APPS, 7 = first /APPS child, 8 = second /APPS child.
 // Returns w0 = number of expected entries recorded from the directory buffer.
 .global pi4_storage_parse_asset_dir
 .type pi4_storage_parse_asset_dir, %function
@@ -2052,17 +2067,21 @@ pi4_storage_parse_asset_dir:
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_apps_dir:
-    mov x0, x22
-    adr x1, pi4_storage_name_doom_dir
-    bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_doom_dir
-    mov x0, x22
-    adr x1, pi4_storage_name_quake_dir
-    bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_quake_dir
+    ldrb w3, [x22]
+    cmp w3, #0x2e
+    b.eq .Lpi4_storage_asset_dir_next
+    adr x2, pi4_storage_status_app_doom_dir
+    ldr x3, [x2]
+    cbz x3, .Lpi4_storage_asset_dir_record_app_slot0_dir
+    adr x2, pi4_storage_status_app_quake_dir
+    ldr x3, [x2]
+    cbz x3, .Lpi4_storage_asset_dir_record_app_slot1_dir
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_doom_dir:
+.Lpi4_storage_asset_dir_record_app_slot0_dir:
+    mov x0, x22
+    adr x1, pi4_storage_status_app_doom_dir_name
+    bl pi4_storage_copy_short_name
     mov x0, x22
     mov x1, x23
     adr x2, pi4_storage_status_app_doom_dir
@@ -2070,7 +2089,10 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_quake_dir:
+.Lpi4_storage_asset_dir_record_app_slot1_dir:
+    mov x0, x22
+    adr x1, pi4_storage_status_app_quake_dir_name
+    bl pi4_storage_copy_short_name
     mov x0, x22
     mov x1, x23
     adr x2, pi4_storage_status_app_quake_dir
@@ -2233,10 +2255,6 @@ pi4_storage_name_apps_dir:
     .ascii "APPS       "
 pi4_storage_name_index_txt:
     .ascii "INDEX   TXT"
-pi4_storage_name_doom_dir:
-    .ascii "DOOM       "
-pi4_storage_name_quake_dir:
-    .ascii "QUAKE      "
 pi4_storage_name_app_elf:
     .ascii "APP     ELF"
 pi4_storage_name_app_txt:
@@ -2720,6 +2738,10 @@ pi4_storage_status_app_doom_dir:
     .quad 0
     .quad 0
     .quad 0
+.global pi4_storage_status_app_doom_dir_name
+pi4_storage_status_app_doom_dir_name:
+    .skip 16
+    .balign 8
 .global pi4_storage_status_app_doom_manifest
 pi4_storage_status_app_doom_manifest:
     .quad 0
@@ -2736,6 +2758,10 @@ pi4_storage_status_app_quake_dir:
     .quad 0
     .quad 0
     .quad 0
+.global pi4_storage_status_app_quake_dir_name
+pi4_storage_status_app_quake_dir_name:
+    .skip 16
+    .balign 8
 .global pi4_storage_status_app_quake_manifest
 pi4_storage_status_app_quake_manifest:
     .quad 0

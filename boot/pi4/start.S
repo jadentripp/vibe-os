@@ -9562,6 +9562,116 @@ pi4_kernel_el0_asset_suffix_eq16:
     ret
 .size pi4_kernel_el0_asset_suffix_eq16, . - pi4_kernel_el0_asset_suffix_eq16
 
+.type pi4_kernel_el0_app_path_match, %function
+pi4_kernel_el0_app_path_match:
+    cbz x0, .Lpi4_kernel_el0_app_path_match_no
+    cbz x1, .Lpi4_kernel_el0_app_path_match_no
+    cbz x2, .Lpi4_kernel_el0_app_path_match_no
+    ldrb w3, [x1]
+    cbz w3, .Lpi4_kernel_el0_app_path_match_no
+    cmp w3, #0x20
+    b.eq .Lpi4_kernel_el0_app_path_match_no
+
+    mov x3, x0
+    adr x4, pi4_apps_path_prefix_string
+.Lpi4_kernel_el0_app_path_match_prefix:
+    ldrb w5, [x4], #1
+    cbz w5, .Lpi4_kernel_el0_app_path_match_component
+    ldrb w6, [x3], #1
+    cbz w6, .Lpi4_kernel_el0_app_path_match_no
+    cmp w6, #0x5c
+    b.ne .Lpi4_kernel_el0_app_path_match_prefix_fold
+    mov w6, #0x2f
+.Lpi4_kernel_el0_app_path_match_prefix_fold:
+    cmp w6, #0x61
+    b.lo .Lpi4_kernel_el0_app_path_match_prefix_cmp
+    cmp w6, #0x7a
+    b.hi .Lpi4_kernel_el0_app_path_match_prefix_cmp
+    sub w6, w6, #0x20
+.Lpi4_kernel_el0_app_path_match_prefix_cmp:
+    cmp w6, w5
+    b.ne .Lpi4_kernel_el0_app_path_match_no
+    b .Lpi4_kernel_el0_app_path_match_prefix
+
+.Lpi4_kernel_el0_app_path_match_component:
+    mov x4, x1
+    mov x7, xzr
+.Lpi4_kernel_el0_app_path_match_component_next:
+    cmp x7, #8
+    b.hs .Lpi4_kernel_el0_app_path_match_component_end
+    ldrb w5, [x4, x7]
+    cmp w5, #0x20
+    b.eq .Lpi4_kernel_el0_app_path_match_padding
+    cbz w5, .Lpi4_kernel_el0_app_path_match_padding
+    ldrb w6, [x3]
+    cbz w6, .Lpi4_kernel_el0_app_path_match_no
+    cmp w6, #0x2f
+    b.eq .Lpi4_kernel_el0_app_path_match_no
+    cmp w6, #0x5c
+    b.eq .Lpi4_kernel_el0_app_path_match_no
+    cmp w6, #0x61
+    b.lo .Lpi4_kernel_el0_app_path_match_component_cmp
+    cmp w6, #0x7a
+    b.hi .Lpi4_kernel_el0_app_path_match_component_cmp
+    sub w6, w6, #0x20
+.Lpi4_kernel_el0_app_path_match_component_cmp:
+    cmp w6, w5
+    b.ne .Lpi4_kernel_el0_app_path_match_no
+    add x3, x3, #1
+    add x7, x7, #1
+    b .Lpi4_kernel_el0_app_path_match_component_next
+
+.Lpi4_kernel_el0_app_path_match_padding:
+    ldrb w6, [x3]
+    cmp w6, #0x2f
+    b.eq .Lpi4_kernel_el0_app_path_match_padding_check
+    cmp w6, #0x5c
+    b.eq .Lpi4_kernel_el0_app_path_match_padding_check
+    b .Lpi4_kernel_el0_app_path_match_no
+.Lpi4_kernel_el0_app_path_match_padding_check:
+    cmp x7, #8
+    b.hs .Lpi4_kernel_el0_app_path_match_component_slash
+    ldrb w5, [x4, x7]
+    cbz w5, .Lpi4_kernel_el0_app_path_match_component_slash
+    cmp w5, #0x20
+    b.ne .Lpi4_kernel_el0_app_path_match_no
+    add x7, x7, #1
+    b .Lpi4_kernel_el0_app_path_match_padding_check
+
+.Lpi4_kernel_el0_app_path_match_component_end:
+    ldrb w6, [x3]
+    cmp w6, #0x2f
+    b.eq .Lpi4_kernel_el0_app_path_match_component_slash
+    cmp w6, #0x5c
+    b.ne .Lpi4_kernel_el0_app_path_match_no
+.Lpi4_kernel_el0_app_path_match_component_slash:
+    add x3, x3, #1
+    mov x8, #16
+.Lpi4_kernel_el0_app_path_match_leaf:
+    cbz x8, .Lpi4_kernel_el0_app_path_match_no
+    sub x8, x8, #1
+    ldrb w5, [x2], #1
+    ldrb w6, [x3], #1
+    cbz w5, .Lpi4_kernel_el0_app_path_match_leaf_end
+    cbz w6, .Lpi4_kernel_el0_app_path_match_no
+    cmp w6, #0x61
+    b.lo .Lpi4_kernel_el0_app_path_match_leaf_cmp
+    cmp w6, #0x7a
+    b.hi .Lpi4_kernel_el0_app_path_match_leaf_cmp
+    sub w6, w6, #0x20
+.Lpi4_kernel_el0_app_path_match_leaf_cmp:
+    cmp w6, w5
+    b.ne .Lpi4_kernel_el0_app_path_match_no
+    b .Lpi4_kernel_el0_app_path_match_leaf
+.Lpi4_kernel_el0_app_path_match_leaf_end:
+    cbnz w6, .Lpi4_kernel_el0_app_path_match_no
+    mov x0, #1
+    ret
+.Lpi4_kernel_el0_app_path_match_no:
+    mov x0, xzr
+    ret
+.size pi4_kernel_el0_app_path_match, . - pi4_kernel_el0_app_path_match
+
 .type pi4_kernel_el0_strlen_bounded, %function
 pi4_kernel_el0_strlen_bounded:
     cbz x0, .Lpi4_kernel_el0_strlen_bounded_bad
@@ -9610,24 +9720,28 @@ pi4_user_file_lookup_path:
     str x19, [sp, #16]
     mov x19, x0
 
-    adr x1, pi4_app_doom_elf_path_string
-    bl pi4_kernel_el0_asset_suffix_eq16
+    adr x1, pi4_storage_status_app_doom_dir_name
+    adr x2, pi4_app_elf_leaf_string
+    bl pi4_kernel_el0_app_path_match
     cbnz x0, .Lpi4_user_file_lookup_path_app_doom_elf
     mov x0, x19
-    adr x1, pi4_app_quake_elf_path_string
-    bl pi4_kernel_el0_asset_suffix_eq16
+    adr x1, pi4_storage_status_app_quake_dir_name
+    adr x2, pi4_app_elf_leaf_string
+    bl pi4_kernel_el0_app_path_match
     cbnz x0, .Lpi4_user_file_lookup_path_app_quake_elf
     mov x0, x19
     adr x1, pi4_app_index_path_string
     bl pi4_kernel_el0_asset_suffix_eq16
     cbnz x0, .Lpi4_user_file_lookup_path_app_index
     mov x0, x19
-    adr x1, pi4_app_doom_manifest_path_string
-    bl pi4_kernel_el0_asset_suffix_eq16
+    adr x1, pi4_storage_status_app_doom_dir_name
+    adr x2, pi4_app_manifest_leaf_string
+    bl pi4_kernel_el0_app_path_match
     cbnz x0, .Lpi4_user_file_lookup_path_app_doom_manifest
     mov x0, x19
-    adr x1, pi4_app_quake_manifest_path_string
-    bl pi4_kernel_el0_asset_suffix_eq16
+    adr x1, pi4_storage_status_app_quake_dir_name
+    adr x2, pi4_app_manifest_leaf_string
+    bl pi4_kernel_el0_app_path_match
     cbnz x0, .Lpi4_user_file_lookup_path_app_quake_manifest
     mov x0, x19
     adr x1, pi4_user_file_doom1_path
@@ -12190,12 +12304,14 @@ pi4_app_doom_elf_path_string:
     .asciz "/APPS/DOOM/APP.ELF"
 pi4_app_quake_elf_path_string:
     .asciz "/APPS/QUAKE/APP.ELF"
+pi4_apps_path_prefix_string:
+    .asciz "/APPS/"
+pi4_app_elf_leaf_string:
+    .asciz "APP.ELF"
+pi4_app_manifest_leaf_string:
+    .asciz "APP.TXT"
 pi4_app_index_path_string:
     .asciz "/APPS/INDEX.TXT"
-pi4_app_doom_manifest_path_string:
-    .asciz "/APPS/DOOM/APP.TXT"
-pi4_app_quake_manifest_path_string:
-    .asciz "/APPS/QUAKE/APP.TXT"
 pi4_user_file_doom1_path:
     .asciz "DOOM1.WAD"
 pi4_user_file_pak0_path:
