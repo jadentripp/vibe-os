@@ -1,0 +1,5 @@
+# Built test binaries (regenerate with `make -C tests/linux`)
+*.o
+hello_write
+auxv_dump
+tls_probe
