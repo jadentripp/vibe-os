@@ -613,7 +613,9 @@ PROC_STATE_SLEEPING equ 5
 PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 6
 PROCESS_GENERIC_SLOT_COUNT equ 2
-PROCESS_RECORD_BYTES equ 184
+PROCESS_RECORD_BYTES equ 188
+PERSONALITY_NATIVE equ 0
+PERSONALITY_LINUX equ 1
 PROCESS_EXEC_TABLE_COUNT equ 2
 PROCESS_EXEC_ENTRY_BYTES equ 24
 PROCESS_EXEC_PATH equ 0
@@ -672,6 +674,7 @@ PROC_ARGV0 equ 168
 PROC_SLOT_GENERATION equ 172
 PROC_HEAP_BITMAP equ 176
 PROC_HEAP_PAGE_COUNT equ 180
+PROC_PERSONALITY equ 184            ; PERSONALITY_NATIVE / PERSONALITY_LINUX
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 PROC_BLOCK_NONE equ 0
 PROC_BLOCK_SLEEP_TICKS equ 1
@@ -19024,6 +19027,7 @@ process_seed_initial_user_context:
     mov dword [esi + PROC_STATE], PROC_STATE_READY
     mov dword [esi + PROC_QUANTUM_TICKS], 0
     or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    mov dword [esi + PROC_PERSONALITY], PERSONALITY_NATIVE
     call process_fpu_reset_context
     pop edi
     pop ecx
@@ -22476,6 +22480,13 @@ syscall_handler:
     mov eax, [current_syscall_number]
 
 .dispatch:
+    ; Linux personality branch: route LINUX processes to the parallel
+    ; Linux i386 syscall path; native processes fall through unchanged.
+    push ebx
+    mov ebx, [current_process_ptr]
+    cmp dword [ebx + PROC_PERSONALITY], PERSONALITY_LINUX
+    pop ebx
+    je .linux_dispatch
     cmp eax, SYS_USER_PROBE
     je .user_probe
     cmp eax, SYS_EXIT
@@ -25188,6 +25199,14 @@ syscall_handler:
     mov eax, user_io_last_error
     call user_io_store_current
     mov eax, edx
+    jmp .return
+
+; Linux i386 syscall path. EAX=nr, EBX/ECX/EDX/ESI/EDI/EBP=args 1..6.
+; For M-1 (Task 2) every Linux syscall is traced and returns -ENOSYS;
+; later tasks replace the unimpl call with a real syscall table.
+.linux_dispatch:
+    call linux_syscall_trace
+    call linux_syscall_unimpl       ; eax = -ENOSYS
     jmp .return
 
 .exit:
@@ -35196,6 +35215,7 @@ process_kernel:
     dd PAGING_DIR_ADDR, 0, 0, 0, PROC_KERNEL_PROCESS_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd 0, 0
+    dd PERSONALITY_NATIVE
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -35205,6 +35225,7 @@ process_user_probe:
     dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_user_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
 process_preempt_probe:
     dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -35214,6 +35235,7 @@ process_preempt_probe:
     dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
 process_payload:
     dd 2, USER_KIND_GENERIC, PROC_STATE_READY
     dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
@@ -35223,6 +35245,7 @@ process_payload:
     dd PROC_PAYLOAD_PAGE_DIR_ADDR, process_payload_vm_regions, 3, 0, PROC_PAYLOAD_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_payload_heap_bitmap, PAYLOAD_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
 process_generic0:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -35232,6 +35255,7 @@ process_generic0:
     dd PROC_GENERIC0_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC0_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_generic0_heap_bitmap, USER_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
 process_generic1:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -35241,6 +35265,7 @@ process_generic1:
     dd PROC_GENERIC1_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC1_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_generic1_heap_bitmap, USER_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
 process_generic_exec_slots:
     dd process_generic0, process_generic1
 align 4
