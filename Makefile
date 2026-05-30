@@ -8,6 +8,9 @@ HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
 HOST_UNAME_S := $(shell uname -s)
 HOST_NASM_FORMAT ?= $(if $(filter Darwin,$(HOST_UNAME_S)),macho64,elf64)
 HOST_NASM_DEFS ?= $(if $(filter Darwin,$(HOST_UNAME_S)),-D MACHO64,)
+# NASM-built host objects use absolute relocations that a PIE link rejects.
+# Linux GCC defaults to -pie, so force -no-pie there; Darwin's linker doesn't need it.
+HOST_NO_PIE ?= $(if $(filter Darwin,$(HOST_UNAME_S)),,-no-pie)
 NC ?= nc
 KERNEL_EXTRA_NASMFLAGS ?=
 USER_ABI_PROBE_NASMFLAGS ?=
@@ -397,25 +400,25 @@ $(LINK_ELF32_OBJ): $(LINK_ELF32_SRC) | $(BUILD_DIR)
 	$(NASM) -f $(HOST_NASM_FORMAT) $(HOST_NASM_DEFS) $< -o $@
 
 $(LINK_ELF32): $(LINK_ELF32_OBJ) | $(BUILD_DIR)
-	$(HOST_CC) $< -o $@
+	$(HOST_CC) $(HOST_NO_PIE) $< -o $@
 
 $(LINK_AARCH64_FLAT_OBJ): $(LINK_AARCH64_FLAT_SRC) | $(BUILD_DIR)
 	$(HOST_CC) -c $< -o $@
 
 $(LINK_AARCH64_FLAT): $(LINK_AARCH64_FLAT_OBJ) | $(BUILD_DIR)
-	$(HOST_CC) $< -o $@
+	$(HOST_CC) $(HOST_NO_PIE) $< -o $@
 
 $(LINK_AARCH64_USER_ELF_OBJ): $(LINK_AARCH64_USER_ELF_SRC) | $(BUILD_DIR)
 	$(HOST_CC) -c $< -o $@
 
 $(LINK_AARCH64_USER_ELF): $(LINK_AARCH64_USER_ELF_OBJ) | $(BUILD_DIR)
-	$(HOST_CC) $< -o $@
+	$(HOST_CC) $(HOST_NO_PIE) $< -o $@
 
 $(IMAGE_BUILDER_OBJ): $(IMAGE_BUILDER_SRC) | $(BUILD_DIR)
 	$(HOST_CC) -c $< -o $@
 
 $(IMAGE_BUILDER): $(IMAGE_BUILDER_OBJ) | $(BUILD_DIR)
-	$(HOST_CC) $< -o $@
+	$(HOST_CC) $(HOST_NO_PIE) $< -o $@
 
 image-builder-tool: $(IMAGE_BUILDER)
 
@@ -423,7 +426,7 @@ $(VIBE_STATUS_CHECK_OBJ): $(VIBE_STATUS_CHECK_SRC) | $(BUILD_DIR)
 	$(NASM) -f $(HOST_NASM_FORMAT) $(HOST_NASM_DEFS) $< -o $@
 
 $(VIBE_STATUS_CHECK): $(VIBE_STATUS_CHECK_OBJ) | $(BUILD_DIR)
-	$(HOST_CC) $< -o $@
+	$(HOST_CC) $(HOST_NO_PIE) $< -o $@
 
 status-checker-tool: $(VIBE_STATUS_CHECK)
 
