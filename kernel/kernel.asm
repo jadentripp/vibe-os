@@ -22361,6 +22361,56 @@ user_io_store_current:
     pop eax
     ret
 
+; --- Linux personality syscall plumbing (M-1) ---
+; LINUX_ENOSYS: Linux i386 errno for "function not implemented".
+LINUX_ENOSYS equ 38
+
+; linux_syscall_trace: record one Linux syscall into the ring buffer.
+; Called at the top of linux_syscall_dispatch with the user register set
+; still live: EAX=nr, EBX/ECX/EDX/ESI/EDI/EBP = args 1..6. Preserves all
+; registers. Reads the saved values from the pushad frame so it is robust
+; against using EDI as the buffer cursor.
+linux_syscall_trace:
+    pushad
+    ; pushad frame (low->high): edi,esi,ebp,esp,ebx,edx,ecx,eax
+    mov edi, [linux_trace_head]
+    imul edi, edi, LINUX_TRACE_ENTRY_BYTES
+    lea edi, [linux_trace_buffer + edi]
+    mov eax, [esp + 28]          ; saved EAX = nr
+    mov [edi + 0], eax
+    mov eax, [esp + 16]          ; saved EBX = arg1
+    mov [edi + 4], eax
+    mov eax, [esp + 24]          ; saved ECX = arg2
+    mov [edi + 8], eax
+    mov eax, [esp + 20]          ; saved EDX = arg3
+    mov [edi + 12], eax
+    mov eax, [esp + 4]           ; saved ESI = arg4
+    mov [edi + 16], eax
+    mov eax, [esp + 0]           ; saved EDI = arg5
+    mov [edi + 20], eax
+    mov eax, [esp + 8]           ; saved EBP = arg6
+    mov [edi + 24], eax
+    ; [edi + 28] (ret) left for a future exit-side patch
+    inc dword [linux_trace_count]
+    mov eax, [linux_trace_head]
+    inc eax
+    cmp eax, LINUX_TRACE_SLOTS
+    jb .store
+    xor eax, eax
+.store:
+    mov [linux_trace_head], eax
+    popad
+    ret
+
+; linux_syscall_unimpl: default handler for unimplemented Linux syscalls.
+; Records the number for guest-status proof and returns -ENOSYS in EAX
+; (vibe-os negative-errno convention). Tracing is done once by the caller
+; (linux_syscall_dispatch), so this does not trace again.
+linux_syscall_unimpl:
+    mov [linux_last_unimpl_nr], eax
+    mov eax, -LINUX_ENOSYS
+    ret
+
 syscall_handler:
     push eax
     xor eax, eax
@@ -35967,6 +36017,13 @@ current_user_entry dd 0
 current_syscall_number dd 0
 syscall_return_value dd 0
 syscall_trap_entry_count dd 0
+; --- Linux personality syscall tracer (M-1) ---
+LINUX_TRACE_SLOTS equ 64
+LINUX_TRACE_ENTRY_BYTES equ 32             ; nr, 6 args, ret = 8 dwords
+linux_trace_buffer times (LINUX_TRACE_SLOTS * LINUX_TRACE_ENTRY_BYTES) db 0
+linux_trace_head dd 0                       ; next slot index
+linux_trace_count dd 0                      ; total Linux syscalls seen (guest-status proof)
+linux_last_unimpl_nr dd 0                    ; last -ENOSYS syscall number (guest-status proof)
 syscall_abi_version_seen dd VIBE_USER_ABI_VERSION
 syscall_trap_vector_seen dd SYSCALL_TRAP_VECTOR
 syscall_max_args_seen dd SYSCALL_MAX_ARGS
