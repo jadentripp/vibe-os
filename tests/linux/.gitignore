@@ -3,3 +3,13 @@
 hello_write
 auxv_dump
 tls_probe
+startup_probe
+exec_limits_probe
+dir_probe
+fd_probe
+pipe_probe
+fork_probe
+hello_musl
+hello_glibc
+libc_probe
+linux_doom

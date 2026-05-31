@@ -9,14 +9,28 @@
 #   make -C tests/linux            # build all test binaries
 #   make -C tests/linux clean
 NASM      ?= nasm
+ZIG       ?= zig
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 LINK_ELF32 ?= $(REPO_ROOT)/build/link_elf32
-BASE      ?= 0x08048000
+# vibe-os maps a fixed user window (USER_CODE_ADDR=0x00e80000 .. 0x01400000)
+# per process and the loader copies into it; link the M-1 hand-asm binaries
+# at USER_CODE_ADDR so they reuse that window. (Real glibc at 0x08048000 needs
+# the out-of-window mapping extension handled in Task 7.)
+BASE      ?= 0x00e80000
+LINUX_CFLAGS ?= -Os -no-pie -march=i386 -mno-sse -mno-sse2
+LINUX_LDFLAGS ?= -Wl,--image-base=$(BASE)
+LDOOM_BASE ?= 0x01000000
+DOOM_SRC_DIR := $(REPO_ROOT)/third_party/doom/linuxdoom-1.10
+DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
+LDOOM_CFLAGS ?= -Os -std=gnu89 -fcommon -no-pie -march=i386 -mno-sse -mno-sse2 -Wno-implicit-function-declaration -Wno-int-conversion -DNORMALUNIX -DLINUX -I$(DOOM_SRC_DIR)
+LDOOM_LDFLAGS ?= -static -Wl,--image-base=$(LDOOM_BASE) -Wl,--strip-all
 
-BINARIES := hello_write
+BINARIES := hello_write auxv_dump tls_probe startup_probe exec_limits_probe dir_probe fd_probe pipe_probe fork_probe
 
-.PHONY: all clean
+.PHONY: all clean real-libc linux-doom
 all: $(BINARIES)
+real-libc: hello_musl hello_glibc libc_probe
+linux-doom: linux_doom
 
 # link_elf32 is produced by the top-level Makefile.
 $(LINK_ELF32):
@@ -28,5 +42,17 @@ $(LINK_ELF32):
 %: %.o $(LINK_ELF32)
 	$(LINK_ELF32) -o $@ --base $(BASE) $<
 
+hello_musl: hello_musl.c
+	$(ZIG) cc -target x86-linux-musl -static $(LINUX_CFLAGS) $(LINUX_LDFLAGS) $< -o $@
+
+hello_glibc: hello_glibc.c
+	$(ZIG) cc -target x86-linux-gnu $(LINUX_CFLAGS) $(LINUX_LDFLAGS) $< -o $@
+
+libc_probe: libc_probe.c
+	$(ZIG) cc -target x86-linux-gnu $(LINUX_CFLAGS) $(LINUX_LDFLAGS) $< -o $@
+
+linux_doom: linux_doom_headless.c $(DOOM_ORIGINAL_SRCS)
+	$(ZIG) cc -target x86-linux-musl $(LDOOM_CFLAGS) $(LDOOM_LDFLAGS) $^ -o $@
+
 clean:
-	rm -f *.o $(BINARIES)
+	rm -f *.o $(BINARIES) hello_musl hello_glibc libc_probe linux_doom
