@@ -14,6 +14,7 @@ proc_self_exe_probe
 tmp_dir_probe
 procid_probe
 libmagic_probe
+ldso_header_probe
 writev_probe
 eventfd_probe
 epoll_probe

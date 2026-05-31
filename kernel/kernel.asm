@@ -12392,6 +12392,7 @@ storage_init:
     mov dword [linux_clone_last_ctid], 0
     mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
+    mov dword [linux_clone_last_mode], 0
     mov dword [syscall_abi_version_seen], VIBE_USER_ABI_VERSION
     mov dword [syscall_trap_vector_seen], SYSCALL_TRAP_VECTOR
     mov dword [syscall_max_args_seen], SYSCALL_MAX_ARGS
@@ -22091,6 +22092,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_libmagic
 
+    mov edi, exec_path_linux_ldso_header
+    call kernel_streq
+    cmp al, 1
+    je .linux_ldso_header
+
     mov edi, exec_path_linux_ldoom
     call kernel_streq
     cmp al, 1
@@ -22269,6 +22275,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_libmagic_elf_name_83
+    jmp .linux_bin_app
+
+.linux_ldso_header:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_ldso_header_elf_name_83
     jmp .linux_bin_app
 
 .linux_ldoom:
@@ -24420,6 +24433,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_LIBMAGIC_SMOKE
     mov esi, exec_path_linux_libmagic
 %endif
+%ifdef LINUX_M1_LDSOHDR_SMOKE
+    mov esi, exec_path_linux_ldso_header
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -24524,6 +24540,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_LIBMAGIC_SMOKE
     mov esi, exec_path_linux_libmagic
+%endif
+%ifdef LINUX_M1_LDSOHDR_SMOKE
+    mov esi, exec_path_linux_ldso_header
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -34617,7 +34636,6 @@ syscall_handler:
     jne .linux_openat_relative_bad_pop
     cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
     jne .linux_openat_relative_bad_pop
-    mov dword [linux_relative_synthetic_dir_arg], 1
     pop esi
     pop edx
     jmp .linux_openat_args
@@ -34962,6 +34980,7 @@ syscall_handler:
     mov dword [linux_clone_last_ctid], 0
     mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
+    mov dword [linux_clone_last_mode], 0
 
     mov eax, ebx
     and eax, 0x000000ff
@@ -35023,16 +35042,9 @@ syscall_handler:
 
 .linux_clone_tls_ready:
     mov [process_fork_frame_ptr], esp
-    mov eax, [linux_clone_last_flags]
-    and eax, 0xffffff00
-    and eax, ~LINUX_CLONE_FORK_HIGH_MASK
-    cmp eax, LINUX_CLONE_VFORK_FULL_COPY_MASK
-    je .linux_clone_shared_vm
+    mov dword [linux_clone_last_mode], 1
     call process_fork_current
     jmp .linux_clone_fork_done
-
-.linux_clone_shared_vm:
-    call process_clone_shared_vm_current
 
 .linux_clone_fork_done:
     jc .linux_clone_fork_fail
@@ -38937,6 +38949,68 @@ write_smoke_status:
     mov edx, [large_elf_demand_last_addr]
     call smoke_write_slash_hex32
     mov edx, [large_elf_demand_last_eip]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_m1front_text
+    call smoke_copy_string
+    xor edx, edx
+    cmp dword [process_mmap_attempts], 0
+    je .m1front_mmap_ready
+    mov edx, 3
+    cmp dword [process_mmap_last_error], 0
+    jne .m1front_mmap_ready
+    mov edx, 1
+    mov eax, [mmap_end_arg]
+    cmp eax, PAGING_MAPPED_BYTES
+    jbe .m1front_mmap_ready
+    mov edx, 2
+
+.m1front_mmap_ready:
+    call smoke_write_hex32
+
+    mov edx, [linux_clone_last_mode]
+    call smoke_write_slash_hex32
+
+    xor edx, edx
+    cmp dword [linux_clone_calls], 0
+    je .m1front_clone_ready
+    mov edx, 3
+    cmp dword [linux_clone_last_result], -ERRNO_ENOSYS
+    je .m1front_clone_ready
+    mov edx, 2
+    cmp dword [linux_clone_last_result], 0
+    js .m1front_clone_ready
+    mov edx, 1
+
+.m1front_clone_ready:
+    call smoke_write_slash_hex32
+
+    xor edx, edx
+    cmp dword [fault_contained], 0
+    je .m1front_process_fault
+    mov edx, 1
+
+.m1front_process_fault:
+    cmp dword [process_fault_last_state], PROC_STATE_FAULTED
+    jne .m1front_kernel_fault
+    mov edx, 2
+
+.m1front_kernel_fault:
+    cmp dword [fault_kernel_panic_count], 0
+    je .m1front_fault_ready
+    mov edx, 3
+
+.m1front_fault_ready:
+    call smoke_write_slash_hex32
+    mov edx, [process_mmap_last_error]
+    call smoke_write_slash_hex32
+    mov edx, [process_mmap_last_result]
+    call smoke_write_slash_hex32
+    mov edx, [linux_clone_last_result]
+    call smoke_write_slash_hex32
+    mov edx, [fault_vector]
+    call smoke_write_slash_hex32
+    mov edx, [fault_cr2]
     call smoke_write_slash_hex32
 %endif
     mov esi, smoke_linux_sys_text
@@ -45293,6 +45367,7 @@ smoke_exec_auxv_text db " auxv=", 0
 smoke_linux_m1_text db " linuxm1=", 0
 %ifdef LINUX_M1_CHROMIUM_SMOKE
 smoke_m1live_text db " m1live=", 0
+smoke_m1front_text db " m1front=", 0
 %endif
 smoke_linux_sys_text db " linuxsys=", 0
 smoke_linux_arg_text db " linuxarg=", 0
@@ -45875,6 +45950,7 @@ linux_fork_elf_name_83 db "FORK    ELF"
 linux_proc_self_exe_elf_name_83 db "PROCEXE ELF"
 linux_procid_elf_name_83 db "PROCID  ELF"
 linux_libmagic_elf_name_83 db "LIBMAGICELF"
+linux_ldso_header_elf_name_83 db "LDSOHDR ELF"
 linux_ldoom_elf_name_83 db "LDOOM   ELF"
 linux_busybox_elf_name_83 db "BUSYBOX ELF"
 linux_tmpdir_elf_name_83 db "TMPDIR  ELF"
@@ -45914,6 +45990,7 @@ exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_proc_self_exe db "/BIN/PROCEXE.ELF", 0
 exec_path_linux_procid db "/BIN/PROCID.ELF", 0
 exec_path_linux_libmagic db "/BIN/LIBMAGIC.ELF", 0
+exec_path_linux_ldso_header db "/BIN/LDSOHDR.ELF", 0
 exec_path_linux_ldoom db "/BIN/LDOOM.ELF", 0
 exec_path_linux_busybox db "/BIN/BUSYBOX.ELF", 0
 exec_path_linux_tmpdir db "/BIN/TMPDIR.ELF", 0
@@ -47720,6 +47797,7 @@ linux_clone_last_arg4 dd 0
 linux_clone_last_ctid dd 0
 linux_clone_last_tls_base dd 0
 linux_clone_last_result dd 0
+linux_clone_last_mode dd 0
 linux_path_last_nr dd 0
 linux_path_last_ret dd 0
 linux_path_last_ptr dd 0

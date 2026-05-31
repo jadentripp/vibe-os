@@ -12,8 +12,8 @@
 #   Rebuilds build/disk.img containing /BIN/HELLO.ELF, /BIN/AUXV.ELF,
 #   /BIN/TLS.ELF, /BIN/STARTUP.ELF, /BIN/XLIMIT.ELF, /BIN/DIR.ELF,
 #   /BIN/FD.ELF, /BIN/DEVNULL.ELF, /BIN/PIPE.ELF, /BIN/FORK.ELF,
-#   /BIN/PROCEXE.ELF, /BIN/TMPDIR.ELF, /BIN/PROCID.ELF, and the current
-#   browser-startup syscall probes. If present,
+#   /BIN/PROCEXE.ELF, /BIN/TMPDIR.ELF, /BIN/PROCID.ELF,
+#   /BIN/LDSOHDR.ELF, and the current browser-startup syscall probes. If present,
 #   tests/linux/linux_doom is installed as /BIN/LDOOM.ELF, and
 #   build/busybox-i386/busybox-vibe is installed as /BIN/BUSYBOX.ELF.
 #   If present, real-libc artifacts are also installed under /BIN and /LIB.
@@ -81,8 +81,8 @@ find_glibc_lib_pair() {
 }
 
 # 2. Collect --asset args for every built binary under /BIN.
-ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/DEVNULL.ELF=tests/linux/dev_null_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe --asset /BIN/PROCEXE.ELF=tests/linux/proc_self_exe_probe --asset /BIN/TMPDIR.ELF=tests/linux/tmp_dir_probe --asset /BIN/PROCID.ELF=tests/linux/procid_probe --asset /BIN/LIBMAGIC.ELF=tests/linux/libmagic_probe --asset /BIN/WRITEV.ELF=tests/linux/writev_probe --asset /BIN/EVENTFD.ELF=tests/linux/eventfd_probe --asset /BIN/EPOLL.ELF=tests/linux/epoll_probe --asset /BIN/TIMERFD.ELF=tests/linux/timerfd_probe --asset /BIN/FUTEX.ELF=tests/linux/futex_probe --asset /BIN/THREAD.ELF=tests/linux/thread_probe"
-DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/dir_probe tests/linux/fd_probe tests/linux/dev_null_probe tests/linux/pipe_probe tests/linux/fork_probe tests/linux/proc_self_exe_probe tests/linux/tmp_dir_probe tests/linux/procid_probe tests/linux/libmagic_probe tests/linux/writev_probe tests/linux/eventfd_probe tests/linux/epoll_probe tests/linux/timerfd_probe tests/linux/futex_probe tests/linux/thread_probe"
+ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/DEVNULL.ELF=tests/linux/dev_null_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe --asset /BIN/PROCEXE.ELF=tests/linux/proc_self_exe_probe --asset /BIN/TMPDIR.ELF=tests/linux/tmp_dir_probe --asset /BIN/PROCID.ELF=tests/linux/procid_probe --asset /BIN/LIBMAGIC.ELF=tests/linux/libmagic_probe --asset /BIN/LDSOHDR.ELF=tests/linux/ldso_header_probe --asset /BIN/WRITEV.ELF=tests/linux/writev_probe --asset /BIN/EVENTFD.ELF=tests/linux/eventfd_probe --asset /BIN/EPOLL.ELF=tests/linux/epoll_probe --asset /BIN/TIMERFD.ELF=tests/linux/timerfd_probe --asset /BIN/FUTEX.ELF=tests/linux/futex_probe --asset /BIN/THREAD.ELF=tests/linux/thread_probe"
+DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/dir_probe tests/linux/fd_probe tests/linux/dev_null_probe tests/linux/pipe_probe tests/linux/fork_probe tests/linux/proc_self_exe_probe tests/linux/tmp_dir_probe tests/linux/procid_probe tests/linux/libmagic_probe tests/linux/ldso_header_probe tests/linux/writev_probe tests/linux/eventfd_probe tests/linux/epoll_probe tests/linux/timerfd_probe tests/linux/futex_probe tests/linux/thread_probe"
 
 if [ -f tests/linux/hello_musl ]; then
     ASSETS="$ASSETS --asset /BIN/MUSL.ELF=tests/linux/hello_musl"
