@@ -49,6 +49,8 @@
 .equ PI4_NET_MIN_FRAME_BYTES,           60
 .equ PI4_NET_MAX_FRAME_BYTES,           1514
 .equ PI4_NET_CACHE_LINE_BYTES,          64
+.equ PI4_NET_STATUS_SECTOR_BYTES,       512
+.equ PI4_NET_STATUS_HEADER_BYTES,       64
 
 .equ PI4_GENET_SYS_REV_CTRL,            0x0000
 .equ PI4_GENET_SYS_PORT_CTRL,           0x0004
@@ -2152,7 +2154,7 @@ pi4_net_prepare_status_sector:
 
     ldr x19, =pi4_net_status_sector
     mov x0, x19
-    mov x1, #512
+    mov x1, #PI4_NET_STATUS_SECTOR_BYTES
     bl pi4_net_zero_region
 
     ldr x0, =0x30545354454e4256
@@ -2186,7 +2188,7 @@ pi4_net_prepare_status_sector:
 .Lpi4_net_status_sector_copy_start:
     adr x20, pi4_net_status_probe
     adr x21, pi4_net_status_values_end
-    add x19, x19, #64
+    add x19, x19, #PI4_NET_STATUS_HEADER_BYTES
 .Lpi4_net_status_sector_copy:
     cmp x20, x21
     b.hs .Lpi4_net_status_sector_done
@@ -2216,8 +2218,9 @@ pi4_net_capture_mac_counters:
 
 .type pi4_net_scan_genet_dtb, %function
 pi4_net_scan_genet_dtb:
-    stp x29, x30, [sp, #-16]!
+    stp x29, x30, [sp, #-48]!
     mov x29, sp
+    stp x19, x21, [sp, #16]
     adr x0, pi4_status_pi4dtb
     ldr w0, [x0]
     ldr w1, =VIBE_PI4_STATUS_PI4DTB_OK
@@ -2242,6 +2245,8 @@ pi4_net_scan_genet_dtb:
     add x5, x1, #8
     mov x6, xzr
     mov x7, xzr
+    mov x19, #1
+    mov x21, xzr
 
 .Lpi4_net_scan_loop:
     add x9, x5, #4
@@ -2264,8 +2269,10 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_not_found
 
 .Lpi4_net_scan_begin_node:
-    mov x6, xzr
+    add x19, x19, #1
+    cbnz x6, .Lpi4_net_scan_begin_node_name
     mov x7, xzr
+.Lpi4_net_scan_begin_node_name:
     mov x10, x5
 .Lpi4_net_scan_name_loop:
     cmp x10, x2
@@ -2279,13 +2286,19 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_loop
 
 .Lpi4_net_scan_end_node:
-    cbz x6, .Lpi4_net_scan_loop
+    cbz x6, .Lpi4_net_scan_end_decrement
+    cmp x19, x21
+    b.ne .Lpi4_net_scan_end_decrement
     cbnz x7, .Lpi4_net_scan_reset_node
     b .Lpi4_net_scan_found
 
 .Lpi4_net_scan_reset_node:
     mov x6, xzr
     mov x7, xzr
+    mov x21, xzr
+.Lpi4_net_scan_end_decrement:
+    cbz x19, .Lpi4_net_scan_loop
+    sub x19, x19, #1
     b .Lpi4_net_scan_loop
 
 .Lpi4_net_scan_prop:
@@ -2326,11 +2339,16 @@ pi4_net_scan_genet_dtb:
     bl pi4_net_string_equal
     cbz x0, .Lpi4_net_scan_skip_prop
     mov x6, #1
+    mov x21, x19
     b .Lpi4_net_scan_skip_prop
 
 .Lpi4_net_scan_check_status:
     cmp w9, #8
     b.lo .Lpi4_net_scan_skip_prop
+    cbz x6, .Lpi4_net_scan_check_status_value
+    cmp x19, x21
+    b.ne .Lpi4_net_scan_skip_prop
+.Lpi4_net_scan_check_status_value:
     mov x14, x11
     adr x15, pi4_net_disabled_status
     bl pi4_net_string_equal
@@ -2351,7 +2369,8 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_done
 
 .Lpi4_net_scan_done:
-    ldp x29, x30, [sp], #16
+    ldp x19, x21, [sp, #16]
+    ldp x29, x30, [sp], #48
     ret
 .size pi4_net_scan_genet_dtb, . - pi4_net_scan_genet_dtb
 
@@ -2612,6 +2631,9 @@ pi4_net_status_tcp_banners:
 pi4_net_status_udp_probes:
     .quad 0
 pi4_net_status_values_end:
+.if (pi4_net_status_values_end - pi4_net_status_probe) > (PI4_NET_STATUS_SECTOR_BYTES - PI4_NET_STATUS_HEADER_BYTES)
+.error "Pi 4 net status values exceed VIBESTAT.BIN sector payload"
+.endif
 
 .section .bss.pi4_net, "aw", %nobits
 .balign 64
@@ -2622,4 +2644,4 @@ pi4_net_tx_buffers:
     .skip PI4_NET_TX_RING_SIZE * PI4_NET_TX_BUF_BYTES
 .balign 64
 pi4_net_status_sector:
-    .skip 512
+    .skip PI4_NET_STATUS_SECTOR_BYTES

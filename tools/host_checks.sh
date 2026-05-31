@@ -3,12 +3,16 @@ set -euo pipefail
 
 mode="${1:-}"
 if [ -z "$mode" ]; then
-  echo "usage: tools/host_checks.sh {no-python|project-c-inventory|pi4-assembly-source-gate|pi4-image-inspect|playability-host-check|quake-status-proof|persistence-image-check}" >&2
+  echo "usage: tools/host_checks.sh {check-tools|vm-consent|no-python|project-c-inventory|pi4-assembly-source-gate|pi4-image-inspect|playability-host-check|quake-status-proof|persistence-image-check}" >&2
   exit 2
 fi
 
 BUILD_DIR="${BUILD_DIR:-build}"
 MAKE_BIN="${MAKE:-make}"
+NASM="${NASM:-nasm}"
+QEMU="${QEMU:-qemu-system-x86_64}"
+CLANG="${CLANG:-clang}"
+ALLOW_LOCAL_VM="${ALLOW_LOCAL_VM:-0}"
 PROJECT_C_ALLOWLIST="${PROJECT_C_ALLOWLIST:-tools/project_c_allowlist.txt}"
 IMAGE="${IMAGE:-$BUILD_DIR/disk.img}"
 IMAGE_BUILDER="${IMAGE_BUILDER:-$BUILD_DIR/make_wad_image}"
@@ -25,6 +29,21 @@ PERSISTENCE_REQUIRE_DEFAULT="${PERSISTENCE_REQUIRE_DEFAULT:-0}"
 PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF="${PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF:-0}"
 PERSISTENCE_REQUIRE_SAVE_SLOT="${PERSISTENCE_REQUIRE_SAVE_SLOT:-}"
 PERSISTENCE_REQUIRE_SAVE_DESCRIPTION="${PERSISTENCE_REQUIRE_SAVE_DESCRIPTION:-}"
+
+check_tools() {
+  command -v "$NASM" >/dev/null || { echo "missing nasm"; exit 1; }
+  command -v "$QEMU" >/dev/null || { echo "missing qemu-system-x86_64"; exit 1; }
+  command -v "$CLANG" >/dev/null || { echo "missing clang"; exit 1; }
+}
+
+vm_consent() {
+  if [ "$ALLOW_LOCAL_VM" != "1" ]; then
+    echo "Local QEMU execution is disabled by default."
+    echo "Build-only targets are still allowed: make"
+    echo "Rerun with ALLOW_LOCAL_VM=1 to use run, run-headless, smoke, pi4-local-qemu-live, or pi4-local-qemu-smoke."
+    exit 1
+  fi
+}
 
 no_python_check() {
   local files
@@ -148,6 +167,12 @@ persistence_image_check() {
 }
 
 case "$mode" in
+  check-tools)
+    check_tools
+    ;;
+  vm-consent)
+    vm_consent
+    ;;
   no-python)
     no_python_check
     ;;
