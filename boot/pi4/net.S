@@ -2234,13 +2234,13 @@ pi4_net_scan_genet_dtb:
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_struct_size
     ldr x10, [x0]
-    add x11, x20, x9
+    add x11, x1, x9
     add x2, x11, x10
     adr x0, pi4_status_pi4dtb_strings_off
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_strings_size
     ldr x10, [x0]
-    add x3, x20, x9
+    add x3, x1, x9
     add x4, x3, x10
     add x5, x1, #8
     mov x6, xzr
