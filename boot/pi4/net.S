@@ -563,9 +563,8 @@ pi4_net_run_static_ipv4_probe:
 
     adr x0, pi4_net_status_probe
     ldr x0, [x0]
-    cbz x0, .Lpi4_net_ipv4_probe_done
-    cmp x0, #PI4_NET_PROBE_BAD
-    b.eq .Lpi4_net_ipv4_probe_done
+    cmp x0, #PI4_NET_PROBE_LINK_UP
+    b.ne .Lpi4_net_ipv4_probe_done
 
     bl pi4_net_init_dma_static_ipv4
     cbnz x0, .Lpi4_net_ipv4_probe_done
@@ -585,6 +584,7 @@ pi4_net_run_static_ipv4_probe:
     cmp x23, x22
     b.lo .Lpi4_net_ipv4_probe_poll
     bl pi4_net_send_gratuitous_arp
+    bl pi4_net_send_udp_probe
     add x22, x22, x21
 .Lpi4_net_ipv4_probe_poll:
     bl pi4_net_poll_one_packet
@@ -1382,11 +1382,16 @@ pi4_net_handle_tcp_frame:
     bl pi4_net_record_ssh_client_payload
     adr x0, pi4_net_status_tcp_banners
     ldr x1, [x0]
-    cbnz x1, .Lpi4_net_tcp_done
+    cbnz x1, .Lpi4_net_tcp_ack_client_payload
     mov x0, x19
     bl pi4_net_send_tcp_banner
     mov x0, x19
     bl pi4_net_send_tcp_kexinit
+    b .Lpi4_net_tcp_done
+
+.Lpi4_net_tcp_ack_client_payload:
+    mov x0, x19
+    bl pi4_net_send_tcp_ack_only
 
 .Lpi4_net_tcp_done:
     ldr x21, [sp, #32]
@@ -1552,6 +1557,58 @@ pi4_net_send_tcp_kexinit:
     ret
 .size pi4_net_send_tcp_kexinit, . - pi4_net_send_tcp_kexinit
 
+.type pi4_net_send_tcp_ack_only, %function
+pi4_net_send_tcp_ack_only:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    str x25, [sp, #64]
+    mov x19, x0
+
+    ldrb w21, [x19, #16]
+    ldrb w0, [x19, #17]
+    lsl w21, w21, #8
+    orr w21, w21, w0
+    ldrb w22, [x19, #46]
+    lsr w22, w22, #4
+    lsl w22, w22, #2
+    sub x23, x21, #20
+    cmp x23, x22
+    b.lo .Lpi4_net_tcp_ack_only_done
+    sub x23, x23, x22
+    add x0, x19, #38
+    bl pi4_net_load_be32
+    add x24, x0, x23
+
+    bl pi4_net_prepare_tx_buffer
+    mov x20, x0
+    mov x0, x20
+    mov x1, x19
+    mov x2, xzr
+    mov x3, #PI4_NET_TCP_FLAG_ACK
+    ldr x4, =(PI4_NET_TCP_SERVER_SEQ + 1 + PI4_NET_SSH_BANNER_LEN + PI4_NET_SSH_KEXINIT_PACKET_LEN)
+    mov x5, x24
+    bl pi4_net_build_tcp_reply_base
+    mov x21, x0
+    mov x22, x1
+    mov x0, x20
+    mov x1, x22
+    bl pi4_net_finish_tcp_reply
+    mov x0, x20
+    mov x1, x21
+    bl pi4_net_submit_tx
+
+.Lpi4_net_tcp_ack_only_done:
+    ldr x25, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_net_send_tcp_ack_only, . - pi4_net_send_tcp_ack_only
+
 .type pi4_net_record_ssh_client_payload, %function
 pi4_net_record_ssh_client_payload:
     stp x29, x30, [sp, #-64]!
@@ -1591,10 +1648,6 @@ pi4_net_record_ssh_client_payload:
     lsl x1, x21, #32
     orr x1, x1, x20
     adr x0, pi4_net_status_tcp_checksum
-    str x1, [x0]
-    cmp x21, #PI4_NET_SSH_MSG_KEXINIT
-    b.ne .Lpi4_net_record_ssh_done
-    adr x0, pi4_net_status_tcp_last_ack
     str x1, [x0]
     b .Lpi4_net_record_ssh_done
 
@@ -2122,9 +2175,16 @@ pi4_net_prepare_status_sector:
     ldr x0, [x0]
     str x0, [x19, #56]
 
+    adr x0, pi4_net_status_probe
+    ldr x0, [x0]
+    cmp x0, #PI4_NET_PROBE_MMIO_OK
+    b.lo .Lpi4_net_status_sector_copy_start
+    cmp x0, #PI4_NET_PROBE_BAD
+    b.eq .Lpi4_net_status_sector_copy_start
     bl pi4_net_capture_mac_counters
 
-    adr x20, pi4_net_status_values_start
+.Lpi4_net_status_sector_copy_start:
+    adr x20, pi4_net_status_probe
     adr x21, pi4_net_status_values_end
     add x19, x19, #64
 .Lpi4_net_status_sector_copy:
@@ -2180,6 +2240,8 @@ pi4_net_scan_genet_dtb:
     add x3, x20, x9
     add x4, x3, x10
     add x5, x1, #8
+    mov x6, xzr
+    mov x7, xzr
 
 .Lpi4_net_scan_loop:
     add x9, x5, #4
@@ -2192,7 +2254,7 @@ pi4_net_scan_genet_dtb:
     cmp w0, #PI4_FDT_BEGIN_NODE
     b.eq .Lpi4_net_scan_begin_node
     cmp w0, #PI4_FDT_END_NODE
-    b.eq .Lpi4_net_scan_loop
+    b.eq .Lpi4_net_scan_end_node
     cmp w0, #PI4_FDT_PROP
     b.eq .Lpi4_net_scan_prop
     cmp w0, #PI4_FDT_NOP
@@ -2202,6 +2264,8 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_not_found
 
 .Lpi4_net_scan_begin_node:
+    mov x6, xzr
+    mov x7, xzr
     mov x10, x5
 .Lpi4_net_scan_name_loop:
     cmp x10, x2
@@ -2212,6 +2276,16 @@ pi4_net_scan_genet_dtb:
     bic x5, x5, #3
     cmp x5, x2
     b.hi .Lpi4_net_scan_not_found
+    b .Lpi4_net_scan_loop
+
+.Lpi4_net_scan_end_node:
+    cbz x6, .Lpi4_net_scan_loop
+    cbnz x7, .Lpi4_net_scan_reset_node
+    b .Lpi4_net_scan_found
+
+.Lpi4_net_scan_reset_node:
+    mov x6, xzr
+    mov x7, xzr
     b .Lpi4_net_scan_loop
 
 .Lpi4_net_scan_prop:
@@ -2236,13 +2310,33 @@ pi4_net_scan_genet_dtb:
     b.hs .Lpi4_net_scan_skip_prop
     adr x15, pi4_net_compatible_name
     bl pi4_net_string_equal
-    cbz x0, .Lpi4_net_scan_skip_prop
+    cbnz x0, .Lpi4_net_scan_check_compatible
+    uxtw x14, w10
+    add x14, x3, x14
+    adr x15, pi4_net_status_name
+    bl pi4_net_string_equal
+    cbnz x0, .Lpi4_net_scan_check_status
+    b .Lpi4_net_scan_skip_prop
+
+.Lpi4_net_scan_check_compatible:
     cmp w9, #22
     b.lo .Lpi4_net_scan_skip_prop
     mov x14, x11
     adr x15, pi4_net_genet_compatible
     bl pi4_net_string_equal
-    cbnz x0, .Lpi4_net_scan_found
+    cbz x0, .Lpi4_net_scan_skip_prop
+    mov x6, #1
+    b .Lpi4_net_scan_skip_prop
+
+.Lpi4_net_scan_check_status:
+    cmp w9, #8
+    b.lo .Lpi4_net_scan_skip_prop
+    mov x14, x11
+    adr x15, pi4_net_disabled_status
+    bl pi4_net_string_equal
+    cbz x0, .Lpi4_net_scan_skip_prop
+    mov x7, #1
+    b .Lpi4_net_scan_skip_prop
 
 .Lpi4_net_scan_skip_prop:
     mov x5, x13
@@ -2278,8 +2372,12 @@ pi4_net_string_equal:
 .section .rodata.pi4_net, "a", %progbits
 pi4_net_compatible_name:
     .asciz "compatible"
+pi4_net_status_name:
+    .asciz "status"
 pi4_net_genet_compatible:
     .asciz "brcm,bcm2711-genet-v5"
+pi4_net_disabled_status:
+    .asciz "disabled"
 pi4_net_ssh_banner:
     .ascii "SSH-2.0-vibe-os_pi4\r\n"
 pi4_net_ssh_kexinit_packet:
