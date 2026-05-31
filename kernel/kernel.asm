@@ -35125,8 +35125,18 @@ syscall_handler:
 
 .linux_clone_tls_ready:
     mov [process_fork_frame_ptr], esp
+    mov eax, [linux_clone_last_flags]
+    and eax, 0xffffff00
+    and eax, ~LINUX_CLONE_FORK_HIGH_MASK
+    cmp eax, LINUX_CLONE_VFORK_FULL_COPY_MASK
+    je .linux_clone_shared_vm
     mov dword [linux_clone_last_mode], 1
     call process_fork_current
+    jmp .linux_clone_fork_done
+
+.linux_clone_shared_vm:
+    mov dword [linux_clone_last_mode], 2
+    call process_clone_shared_vm_current
     jmp .linux_clone_fork_done
 
 .linux_clone_fork_done:
@@ -35140,6 +35150,18 @@ syscall_handler:
     cmp esi, 0
     je .linux_clone_child_stack_done
     mov [esi + PROC_SAVED_ESP], eax
+    cmp dword [linux_clone_last_mode], 2
+    jne .linux_clone_child_stack_done
+    cmp eax, [esi + PROC_STACK_BOTTOM]
+    jbe .linux_clone_child_stack_heap_bounds
+    cmp eax, [esi + PROC_STACK_TOP]
+    jbe .linux_clone_child_stack_done
+
+.linux_clone_child_stack_heap_bounds:
+    mov edx, [esi + PROC_HEAP_START]
+    mov [esi + PROC_STACK_BOTTOM], edx
+    mov edx, [esi + PROC_HEAP_END]
+    mov [esi + PROC_STACK_TOP], edx
 
 .linux_clone_child_stack_done:
     pop eax
@@ -35202,6 +35224,49 @@ syscall_handler:
 .linux_clone_child_tid_done:
     pop eax
     inc dword [linux_clone_successes]
+    cmp dword [linux_clone_last_mode], 2
+    je .linux_clone_vfork_block_parent
+    jmp .return
+
+.linux_clone_vfork_block_parent:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .return
+    cmp esi, process_kernel
+    je .return
+    mov [syscall_return_value], eax
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    call process_save_syscall_return_context
+    mov eax, PROC_BLOCK_WAITPID
+    mov ebx, [linux_clone_last_result]
+    xor ecx, ecx
+    xor edx, edx
+    call scheduler_block_current
+    jc .linux_clone_vfork_block_fail
+    call scheduler_select_next_ready
+    mov esi, [scheduler_next_process_ptr]
+    cmp esi, 0
+    je .linux_clone_vfork_idle_wait
+    call process_activate
+    mov ebx, esp
+    call process_restore_syscall_context
+    jmp .context_handoff_return
+
+.linux_clone_vfork_idle_wait:
+    sti
+    hlt
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .linux_clone_vfork_idle_wait
+    cmp dword [esi + PROC_STATE], PROC_STATE_READY
+    jne .linux_clone_vfork_idle_wait
+    call process_activate
+    mov ebx, esp
+    call process_restore_syscall_context
+    jmp .context_handoff_return
+
+.linux_clone_vfork_block_fail:
+    mov eax, [linux_clone_last_result]
     jmp .return
 
 .linux_clone_fork_fail:
