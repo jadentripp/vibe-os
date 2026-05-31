@@ -25923,7 +25923,7 @@ LINUX_DT_REG equ 8
 LINUX_PATH_SNAPSHOT_BYTES equ 32
 LINUX_SYNTHETIC_DIR_CLUSTER equ 0xffffffff
 LINUX_LIBRARY_ALIAS_COUNT equ 30
-LINUX_CHROMIUM_RESOURCE_ALIAS_COUNT equ 8
+LINUX_CHROMIUM_RESOURCE_ALIAS_COUNT equ 15
 LINUX_M1_STATUS_WRITE_LIMIT equ 96
 LINUX_M1_STATUS_SYSCALL_STRIDE equ 128
 LINUX_M1_STATUS_DEMAND_STRIDE equ 128
@@ -46188,6 +46188,20 @@ linux_path_usr_lib_chromium_v8_context db "/usr/lib/chromium/v8_context_snapshot
 linux_path_usr_lib_chromium_v8_context_end:
 linux_path_usr_lib_chromium_crashpad db "/usr/lib/chromium/chrome_crashpad_handler", 0
 linux_path_usr_lib_chromium_crashpad_end:
+linux_path_bin_chromium_resources db "/BIN/resources.pak", 0
+linux_path_bin_chromium_resources_end:
+linux_path_bin_chromium_chrome100 db "/BIN/chrome_100_percent.pak", 0
+linux_path_bin_chromium_chrome100_end:
+linux_path_bin_chromium_chrome200 db "/BIN/chrome_200_percent.pak", 0
+linux_path_bin_chromium_chrome200_end:
+linux_path_bin_chromium_en_us db "/BIN/locales/en-US.pak", 0
+linux_path_bin_chromium_en_us_end:
+linux_path_bin_chromium_snapshot_blob db "/BIN/snapshot_blob.bin", 0
+linux_path_bin_chromium_snapshot_blob_end:
+linux_path_bin_chromium_v8_context db "/BIN/v8_context_snapshot.bin", 0
+linux_path_bin_chromium_v8_context_end:
+linux_path_bin_chromium_crashpad db "/BIN/chrome_crashpad_handler", 0
+linux_path_bin_chromium_crashpad_end:
 align 4
 linux_chromium_resource_alias_path_table:
     dd linux_path_usr_lib_chromium_icudtl
@@ -46198,6 +46212,13 @@ linux_chromium_resource_alias_path_table:
     dd linux_path_usr_lib_chromium_snapshot_blob
     dd linux_path_usr_lib_chromium_v8_context
     dd linux_path_usr_lib_chromium_crashpad
+    dd linux_path_bin_chromium_resources
+    dd linux_path_bin_chromium_chrome100
+    dd linux_path_bin_chromium_chrome200
+    dd linux_path_bin_chromium_en_us
+    dd linux_path_bin_chromium_snapshot_blob
+    dd linux_path_bin_chromium_v8_context
+    dd linux_path_bin_chromium_crashpad
 linux_chromium_resource_alias_len_table:
     dd linux_path_usr_lib_chromium_icudtl_end - linux_path_usr_lib_chromium_icudtl
     dd linux_path_usr_lib_chromium_resources_end - linux_path_usr_lib_chromium_resources
@@ -46207,6 +46228,13 @@ linux_chromium_resource_alias_len_table:
     dd linux_path_usr_lib_chromium_snapshot_blob_end - linux_path_usr_lib_chromium_snapshot_blob
     dd linux_path_usr_lib_chromium_v8_context_end - linux_path_usr_lib_chromium_v8_context
     dd linux_path_usr_lib_chromium_crashpad_end - linux_path_usr_lib_chromium_crashpad
+    dd linux_path_bin_chromium_resources_end - linux_path_bin_chromium_resources
+    dd linux_path_bin_chromium_chrome100_end - linux_path_bin_chromium_chrome100
+    dd linux_path_bin_chromium_chrome200_end - linux_path_bin_chromium_chrome200
+    dd linux_path_bin_chromium_en_us_end - linux_path_bin_chromium_en_us
+    dd linux_path_bin_chromium_snapshot_blob_end - linux_path_bin_chromium_snapshot_blob
+    dd linux_path_bin_chromium_v8_context_end - linux_path_bin_chromium_v8_context
+    dd linux_path_bin_chromium_crashpad_end - linux_path_bin_chromium_crashpad
 linux_chromium_resource_alias_name_table:
     dd chromium_icudtl_name_83
     dd chromium_resources_name_83
@@ -46216,8 +46244,22 @@ linux_chromium_resource_alias_name_table:
     dd chromium_snapshot_blob_name_83
     dd chromium_v8_context_name_83
     dd chromium_crashpad_name_83
+    dd chromium_resources_name_83
+    dd chromium_chrome100_name_83
+    dd chromium_chrome200_name_83
+    dd chromium_en_us_name_83
+    dd chromium_snapshot_blob_name_83
+    dd chromium_v8_context_name_83
+    dd chromium_crashpad_name_83
 linux_chromium_resource_alias_dir_table:
     dd bin_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
     dd chromium_dir_name_83
     dd chromium_dir_name_83
     dd chromium_dir_name_83
