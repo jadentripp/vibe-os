@@ -224,6 +224,7 @@
 .equ PI4_NET_PROBE_LINK_UP,             4
 .equ PI4_NET_PROBE_LINK_DOWN,           5
 .equ PI4_NET_PROBE_BAD,                 0xff
+.equ PI4_NET_RESULT_DTB_SCAN_MISS,      0xd7b00001
 
 .section .text.pi4_net, "ax", %progbits
 .balign 16
@@ -2227,22 +2228,22 @@ pi4_net_scan_genet_dtb:
     cmp w0, w1
     b.ne .Lpi4_net_scan_not_found
 
-    adr x0, pi4_status_pi4dtb_root
-    ldr x1, [x0]
-    cbz x1, .Lpi4_net_scan_not_found
+    adr x0, pi4_status_dtb
+    ldr x8, [x0]
+    cbz x8, .Lpi4_net_scan_not_found
     adr x0, pi4_status_pi4dtb_struct_off
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_struct_size
     ldr x10, [x0]
-    add x11, x1, x9
+    add x11, x8, x9
     add x2, x11, x10
     adr x0, pi4_status_pi4dtb_strings_off
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_strings_size
     ldr x10, [x0]
-    add x3, x1, x9
+    add x3, x8, x9
     add x4, x3, x10
-    add x5, x1, #8
+    add x5, x11, #8
     mov x6, xzr
     mov x7, xzr
     mov x19, #1
@@ -2365,6 +2366,9 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_done
 
 .Lpi4_net_scan_not_found:
+    adr x1, pi4_net_status_result
+    ldr x0, =PI4_NET_RESULT_DTB_SCAN_MISS
+    str x0, [x1]
     mov x0, xzr
     b .Lpi4_net_scan_done
 
