@@ -16,6 +16,14 @@
 .equ PI4_MAILBOX_BASE,                  PI4_PERIPHERAL_BASE + 0x0000b880
 .equ PI4_PWM0_LEGACY_BASE,              0x7e20c000
 .equ PI4_PWM0_SPAN,                     0x28
+.equ PI4_NET_STATUS_RAW_LBA,            33700
+.equ PI4_NET_PHASE_STORAGE_PROBE_BEGIN, 0x1100
+.equ PI4_NET_PHASE_STORAGE_PROBED,      0x1101
+.equ PI4_NET_PHASE_STORAGE_WRITE_SEEN,  0x1102
+.equ PI4_NET_PHASE_NET_PROBE_BEGIN,     0x1200
+.equ PI4_NET_PHASE_NET_PROBE_DONE,      0x1201
+.equ PI4_NET_PHASE_NET_RUN_DONE,        0x1202
+.equ PI4_NET_PHASE_STORAGE_HANDOFF_DONE, 0x1300
 
 .equ PI4_GPIO_GPFSEL1,                  PI4_GPIO_BASE + 0x04
 .equ PI4_GPIO_GPPUPPDN0,                PI4_GPIO_BASE + 0xe4
@@ -571,6 +579,38 @@ _start:
     bl pi4_scan_board_identity
     bl pi4_scan_soc_ranges
     bl pi4_scan_gic_dtb
+    ldr x16, =pi4_net_reset_status
+    blr x16
+    mov x0, #PI4_NET_PHASE_STORAGE_PROBE_BEGIN
+    bl pi4_record_net_phase
+    ldr x16, =pi4_storage_reset_status
+    blr x16
+    ldr x16, =pi4_storage_probe_controller_status
+    blr x16
+    mov x0, #PI4_NET_PHASE_STORAGE_PROBED
+    bl pi4_record_net_phase
+    ldr x0, =pi4_net_static_sector_storage_probed
+    bl pi4_write_net_static_status_sector
+    bl pi4_record_net_status_write_result
+    mov x0, #PI4_NET_PHASE_STORAGE_WRITE_SEEN
+    bl pi4_record_net_phase
+    mov x0, #PI4_NET_PHASE_NET_PROBE_BEGIN
+    bl pi4_record_net_phase
+    ldr x16, =pi4_net_probe_genet_status
+    blr x16
+    mov x0, #PI4_NET_PHASE_NET_PROBE_DONE
+    bl pi4_record_net_phase
+    adr x0, msg_stage_net
+    bl pi4_uart_write_string
+    ldr x16, =pi4_net_run_static_ipv4_probe
+    blr x16
+    mov x0, #PI4_NET_PHASE_NET_RUN_DONE
+    bl pi4_record_net_phase
+    ldr x0, =pi4_net_static_sector_net_run_done
+    bl pi4_write_net_static_status_sector
+    bl pi4_record_net_status_write_result
+    bl pi4_write_net_status_sector_once
+    bl pi4_record_net_status_write_result
     bl pi4_prepare_gic_mmio
     bl pi4_configure_gic
     adr x0, msg_stage_gic
@@ -603,6 +643,13 @@ _start:
     adr x0, msg_stage_storage
     bl pi4_uart_write_string
     bl pi4_sync_storage_status
+    mov x0, #PI4_NET_PHASE_STORAGE_HANDOFF_DONE
+    bl pi4_record_net_phase
+    ldr x0, =pi4_net_static_sector_storage_handoff_done
+    bl pi4_write_net_static_status_sector
+    bl pi4_record_net_status_write_result
+    bl pi4_write_net_status_sector_once
+    bl pi4_record_net_status_write_result
     bl pi4_try_launch_nonembedded_init
     bl pi4_uart_write_status_line
 
@@ -2593,6 +2640,50 @@ pi4_zero_buffer:
     ret
 .size pi4_zero_buffer, . - pi4_zero_buffer
 
+.type pi4_record_net_phase, %function
+pi4_record_net_phase:
+    adr x1, pi4_net_status_phase
+    str x0, [x1]
+    ret
+.size pi4_record_net_phase, . - pi4_record_net_phase
+
+.type pi4_record_net_status_write_result, %function
+pi4_record_net_status_write_result:
+    adr x1, pi4_net_status_write_result
+    str x0, [x1]
+    adr x1, pi4_net_status_write_count
+    ldr x2, [x1]
+    add x2, x2, #1
+    str x2, [x1]
+    ret
+.size pi4_record_net_status_write_result, . - pi4_record_net_status_write_result
+
+.type pi4_write_net_status_sector_once, %function
+pi4_write_net_status_sector_once:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    ldr x16, =pi4_net_prepare_status_sector
+    blr x16
+    mov x1, x0
+    ldr x0, =PI4_NET_STATUS_RAW_LBA
+    ldr x16, =pi4_storage_write_block
+    blr x16
+    ldp x29, x30, [sp], #16
+    ret
+.size pi4_write_net_status_sector_once, . - pi4_write_net_status_sector_once
+
+.type pi4_write_net_static_status_sector, %function
+pi4_write_net_static_status_sector:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    mov x1, x0
+    ldr x0, =PI4_NET_STATUS_RAW_LBA
+    ldr x16, =pi4_storage_write_block
+    blr x16
+    ldp x29, x30, [sp], #16
+    ret
+.size pi4_write_net_static_status_sector, . - pi4_write_net_static_status_sector
+
 .type pi4_prepare_storage_handoff, %function
 pi4_prepare_storage_handoff:
     stp x29, x30, [sp, #-96]!
@@ -3996,6 +4087,7 @@ pi4_uart_write_status_line:
     bl pi4_uart_write_user_file_tuple
     bl pi4_uart_write_memory_tuple
     bl pi4_uart_write_storage_status_tuple
+    bl pi4_uart_write_net_status_tuple
     bl pi4_uart_write_audio_status_tuple
     bl pi4_uart_write_runtime_suffix
 
@@ -4056,6 +4148,155 @@ pi4_uart_write_user_file_tuple:
     ldp x29, x30, [sp], #48
     ret
 .size pi4_uart_write_user_file_tuple, . - pi4_uart_write_user_file_tuple
+
+.type pi4_uart_write_net_status_tuple, %function
+pi4_uart_write_net_status_tuple:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+
+    adr x0, pi4_net_status_probe
+    ldr x1, [x0]
+    cmp x1, #4
+    b.eq .Lpi4_uart_write_net_link
+    cmp x1, #5
+    b.eq .Lpi4_uart_write_net_down
+    cmp x1, #0xff
+    b.eq .Lpi4_uart_write_net_bad
+    cbnz x1, .Lpi4_uart_write_net_probe
+    adr x0, msg_status_pi4net_wait
+    b .Lpi4_uart_write_net_prefix
+.Lpi4_uart_write_net_link:
+    adr x0, msg_status_pi4net_link
+    b .Lpi4_uart_write_net_prefix
+.Lpi4_uart_write_net_down:
+    adr x0, msg_status_pi4net_down
+    b .Lpi4_uart_write_net_prefix
+.Lpi4_uart_write_net_bad:
+    adr x0, msg_status_pi4net_bad
+    b .Lpi4_uart_write_net_prefix
+.Lpi4_uart_write_net_probe:
+    adr x0, msg_status_pi4net_probe
+.Lpi4_uart_write_net_prefix:
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_bus_base
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_arm_base
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_span
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_sys_rev
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_port_ctrl
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rgmii_oob
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_umac_cmd
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rbuf_ctrl
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rbuf_chk
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+
+    adr x0, msg_status_pi4mdio
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_mdio_cmd
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_phy_addr
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_phy_bmsr
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_phy_id1
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_phy_id2
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_link
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_result
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+
+    adr x0, msg_status_pi4netio
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rx_packets
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_tx_packets
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_arp_replies
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_icmp_replies
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rx_prod
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_rx_cons
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_net_status_tx_prod
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+
+    ldp x29, x30, [sp], #16
+    ret
+.size pi4_uart_write_net_status_tuple, . - pi4_uart_write_net_status_tuple
 
 .type pi4_uart_write_audio_status_tuple, %function
 pi4_uart_write_audio_status_tuple:
@@ -12340,6 +12581,8 @@ msg_stage_storage:
     .asciz "status: stage storage\r\n"
 msg_stage_audio:
     .asciz "status: stage audio\r\n"
+msg_stage_net:
+    .asciz "status: stage net\r\n"
 msg_framebuffer_gate:
     .asciz "status: mailbox framebuffer path recorded in status block\r\n"
 msg_timer_gate:
@@ -12678,6 +12921,20 @@ msg_status_pi4audiorate:
     .asciz " pi4audiorate="
 msg_status_pi4audiocount:
     .asciz " pi4audiocount="
+msg_status_pi4net_wait:
+    .asciz " pi4net=WAIT pi4genet="
+msg_status_pi4net_probe:
+    .asciz " pi4net=PROBE pi4genet="
+msg_status_pi4net_down:
+    .asciz " pi4net=DOWN pi4genet="
+msg_status_pi4net_bad:
+    .asciz " pi4net=BAD pi4genet="
+msg_status_pi4net_link:
+    .asciz " pi4net=LINK pi4genet="
+msg_status_pi4mdio:
+    .asciz " pi4mdio="
+msg_status_pi4netio:
+    .asciz " pi4netio="
 msg_status_suffix:
     .asciz " faultsrc=NONE faultmode=NONE pi4runtime=WAIT panic=NONE shutdown=NONE\r\n"
 msg_status_suffix_ok:
