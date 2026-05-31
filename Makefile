@@ -128,18 +128,16 @@ PI4_LOCAL_QEMU_FRAMEBUFFER_LOG := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuff
 PI4_LOCAL_QEMU_FRAMEBUFFER_PPM := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.ppm
 PI4_LOCAL_QEMU_MONITOR_SOCK := $(PI4_BUILD_DIR)/local-qemu-monitor.sock
 PI4_REAL_HW_DIR := $(PI4_BUILD_DIR)/real-hw
+PI4_REAL_TRYBOOT_TOOL := tools/pi4_real_tryboot.sh
 PI4_REAL_TRYBOOT_MANIFEST := $(PI4_REAL_HW_DIR)/tryboot-manifest.txt
-PI4_REAL_SSH_HOST ?= pi@openclaw-pi.lan
-PI4_REAL_SSH_KEY ?=
-PI4_REAL_SSH_KEY_OPT := $(if $(PI4_REAL_SSH_KEY),-i "$(PI4_REAL_SSH_KEY)",)
-PI4_REAL_KNOWN_HOSTS ?= /tmp/vibe-os-openclaw-pi-known_hosts
+PI4_REAL_SSH_HOST ?=
+PI4_REAL_SSH ?= ssh
+PI4_REAL_SCP ?= scp
 PI4_REAL_BOOT_MOUNT ?= /boot/firmware
 PI4_REAL_VIBE_DIR ?= $(PI4_REAL_BOOT_MOUNT)/vibe
 PI4_REAL_TRYBOOT_CANDIDATE ?= $(PI4_REAL_BOOT_MOUNT)/tryboot.vibe-os.txt
 PI4_REAL_TRYBOOT_ACTIVE ?= $(PI4_REAL_BOOT_MOUNT)/tryboot.txt
 PI4_REAL_ALLOW_REBOOT ?= 0
-PI4_REAL_SSH := ssh $(PI4_REAL_SSH_KEY_OPT) -o UserKnownHostsFile="$(PI4_REAL_KNOWN_HOSTS)" -o StrictHostKeyChecking=accept-new
-PI4_REAL_SCP := scp $(PI4_REAL_SSH_KEY_OPT) -o UserKnownHostsFile="$(PI4_REAL_KNOWN_HOSTS)" -o StrictHostKeyChecking=accept-new
 PI4_BOOT_ASM_SRCS := boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S boot/pi4/net.S
 PI4_USER_ASM_SRCS := user/pi4_crt0.S user/pi4_runtime.S user/pi4_abi_probe.S user/pi4_launcher.S user/pi4_launcher_assets.S user/pi4_launcher_art.S
 PI4_DOOM_ASM_SRCS := doom_port/pi4_start.S
@@ -164,6 +162,12 @@ PI4_APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
 PI4_APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
 PI4_APP_RECORD_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/MANIFEST.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_DOOM_ELF) --asset /APPS/QUAKE/MANIFEST.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_QUAKE_ELF)
 PI4_APP_RECORD_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
+export PI4_REAL_SSH_HOST PI4_REAL_SSH PI4_REAL_SCP
+export PI4_REAL_BOOT_MOUNT PI4_REAL_VIBE_DIR PI4_REAL_TRYBOOT_CANDIDATE PI4_REAL_TRYBOOT_ACTIVE
+export PI4_REAL_ALLOW_REBOOT PI4_REAL_TRYBOOT_MANIFEST
+export PI4_KERNEL8_IMG PI4_TRYBOOT_TXT PI4_LAUNCHER_ELF PI4_ABI_PROBE_ELF
+export PI4_APP_INDEX_TXT PI4_APP_DOOM_MANIFEST_TXT PI4_DOOM_ELF
+export PI4_APP_QUAKE_MANIFEST_TXT PI4_QUAKE_ELF
 PROJECT_C_ALLOWLIST := tools/project_c_allowlist.txt
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -236,7 +240,18 @@ IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := $(IMAGE_APP_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check project-c-inventory doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect status-checker-tool uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-image pi4-image-inspect pi4-qemu-command pi4-local-qemu-live pi4-local-qemu-smoke pi4-local-qemu-launcher-framebuffer pi4-local-qemu-uart-select-doom pi4-local-qemu-uart-select-quake pi4-local-qemu-uart-select-apps pi4-real-tryboot-manifest pi4-real-tryboot-stage pi4-real-tryboot-preflight pi4-real-tryboot-arm persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test clean check-tools FORCE
+.PHONY: no-python-check project-c-inventory assembly-native-check
+.PHONY: doom-compile doom-link quake-compile quake-link
+.PHONY: play play-image run run-headless smoke persistence-image-check
+.PHONY: quake-status-proof-check playability-host-check vm-consent vm-status-proof-check
+.PHONY: image-builder-tool image-builder-inspect status-checker-tool
+.PHONY: uefi-loader-object uefi-loader-pe uefi-dual-image
+.PHONY: pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app
+.PHONY: pi4-image pi4-image-inspect pi4-qemu-command
+.PHONY: pi4-local-qemu-live pi4-local-qemu-smoke pi4-local-qemu-launcher-framebuffer
+.PHONY: pi4-local-qemu-uart-select-doom pi4-local-qemu-uart-select-quake pi4-local-qemu-uart-select-apps
+.PHONY: pi4-real-tryboot-manifest pi4-real-tryboot-stage pi4-real-tryboot-preflight pi4-real-tryboot-arm
 
 all: $(IMAGE)
 
@@ -619,53 +634,17 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -F -q "app_exec=/APPS/QUAKE/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
 	@! grep -a -E -q "PAYLOAD[0-9]+\\.ELF" "$(PI4_IMAGE)"
 
-pi4-real-tryboot-manifest: $(PI4_KERNEL8_IMG) $(PI4_TRYBOOT_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_DOOM_ELF) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_QUAKE_ELF) | $(PI4_REAL_HW_DIR)
-	@{ \
-		printf "schema=vibe-os-pi4-real-tryboot-manifest-v1\n"; \
-		printf "created_utc="; date -u "+%Y-%m-%dT%H:%M:%SZ"; \
-		printf "normal_boot_preserved=%s/config.txt,%s/kernel8.img\n" "$(PI4_REAL_BOOT_MOUNT)" "$(PI4_REAL_BOOT_MOUNT)"; \
-		printf "tryboot_candidate=%s\n" "$(PI4_REAL_TRYBOOT_CANDIDATE)"; \
-		printf "tryboot_active=%s\n" "$(PI4_REAL_TRYBOOT_ACTIVE)"; \
-		shasum -a 256 "$(PI4_KERNEL8_IMG)" "$(PI4_TRYBOOT_TXT)" "$(PI4_LAUNCHER_ELF)" "$(PI4_ABI_PROBE_ELF)" "$(PI4_APP_INDEX_TXT)" "$(PI4_APP_DOOM_MANIFEST_TXT)" "$(PI4_DOOM_ELF)" "$(PI4_APP_QUAKE_MANIFEST_TXT)" "$(PI4_QUAKE_ELF)"; \
-		wc -c "$(PI4_KERNEL8_IMG)" "$(PI4_TRYBOOT_TXT)" "$(PI4_LAUNCHER_ELF)" "$(PI4_ABI_PROBE_ELF)" "$(PI4_APP_INDEX_TXT)" "$(PI4_APP_DOOM_MANIFEST_TXT)" "$(PI4_DOOM_ELF)" "$(PI4_APP_QUAKE_MANIFEST_TXT)" "$(PI4_QUAKE_ELF)"; \
-	} > "$(PI4_REAL_TRYBOOT_MANIFEST)"
-	@cat "$(PI4_REAL_TRYBOOT_MANIFEST)"
+pi4-real-tryboot-manifest: $(PI4_KERNEL8_IMG) $(PI4_TRYBOOT_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_DOOM_ELF) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_QUAKE_ELF) $(PI4_REAL_TRYBOOT_TOOL) | $(PI4_REAL_HW_DIR)
+	@"$(PI4_REAL_TRYBOOT_TOOL)" manifest
 
-pi4-real-tryboot-stage: pi4-real-tryboot-manifest
-	@set -e; \
-	tmp="/tmp/vibe-os-pi4-stage-$$$$"; \
-	$(PI4_REAL_SSH) "$(PI4_REAL_SSH_HOST)" "rm -rf '$$tmp'; mkdir -p '$$tmp/vibe' '$$tmp/SYSTEM' '$$tmp/APPS/DOOM' '$$tmp/APPS/QUAKE'"; \
-	$(PI4_REAL_SCP) "$(PI4_KERNEL8_IMG)" "$(PI4_REAL_SSH_HOST):$$tmp/vibe/kernel8.img"; \
-	$(PI4_REAL_SCP) "$(PI4_TRYBOOT_TXT)" "$(PI4_REAL_SSH_HOST):$$tmp/tryboot.vibe-os.txt"; \
-	$(PI4_REAL_SCP) "$(PI4_LAUNCHER_ELF)" "$(PI4_REAL_SSH_HOST):$$tmp/SYSTEM/INIT.ELF"; \
-	$(PI4_REAL_SCP) "$(PI4_ABI_PROBE_ELF)" "$(PI4_REAL_SSH_HOST):$$tmp/SYSTEM/ABIPROBE.ELF"; \
-	$(PI4_REAL_SCP) "$(PI4_APP_INDEX_TXT)" "$(PI4_REAL_SSH_HOST):$$tmp/APPS/INDEX.TXT"; \
-	$(PI4_REAL_SCP) "$(PI4_APP_DOOM_MANIFEST_TXT)" "$(PI4_REAL_SSH_HOST):$$tmp/APPS/DOOM/MANIFEST.TXT"; \
-	$(PI4_REAL_SCP) "$(PI4_DOOM_ELF)" "$(PI4_REAL_SSH_HOST):$$tmp/APPS/DOOM/APP.ELF"; \
-	$(PI4_REAL_SCP) "$(PI4_APP_QUAKE_MANIFEST_TXT)" "$(PI4_REAL_SSH_HOST):$$tmp/APPS/QUAKE/MANIFEST.TXT"; \
-	$(PI4_REAL_SCP) "$(PI4_QUAKE_ELF)" "$(PI4_REAL_SSH_HOST):$$tmp/APPS/QUAKE/APP.ELF"; \
-	$(PI4_REAL_SSH) "$(PI4_REAL_SSH_HOST)" "set -e; sudo mkdir -p '$(PI4_REAL_VIBE_DIR)' '$(PI4_REAL_BOOT_MOUNT)/SYSTEM' '$(PI4_REAL_BOOT_MOUNT)/APPS/DOOM' '$(PI4_REAL_BOOT_MOUNT)/APPS/QUAKE'; sudo install -m 0644 '$$tmp/vibe/kernel8.img' '$(PI4_REAL_VIBE_DIR)/kernel8.img'; sudo install -m 0644 '$$tmp/tryboot.vibe-os.txt' '$(PI4_REAL_TRYBOOT_CANDIDATE)'; sudo install -m 0644 '$$tmp/SYSTEM/INIT.ELF' '$(PI4_REAL_BOOT_MOUNT)/SYSTEM/INIT.ELF'; sudo install -m 0644 '$$tmp/SYSTEM/ABIPROBE.ELF' '$(PI4_REAL_BOOT_MOUNT)/SYSTEM/ABIPROBE.ELF'; sudo install -m 0644 '$$tmp/APPS/INDEX.TXT' '$(PI4_REAL_BOOT_MOUNT)/APPS/INDEX.TXT'; sudo install -m 0644 '$$tmp/APPS/DOOM/MANIFEST.TXT' '$(PI4_REAL_BOOT_MOUNT)/APPS/DOOM/MANIFEST.TXT'; sudo install -m 0644 '$$tmp/APPS/DOOM/APP.ELF' '$(PI4_REAL_BOOT_MOUNT)/APPS/DOOM/APP.ELF'; sudo install -m 0644 '$$tmp/APPS/QUAKE/MANIFEST.TXT' '$(PI4_REAL_BOOT_MOUNT)/APPS/QUAKE/MANIFEST.TXT'; sudo install -m 0644 '$$tmp/APPS/QUAKE/APP.ELF' '$(PI4_REAL_BOOT_MOUNT)/APPS/QUAKE/APP.ELF'; rm -rf '$$tmp'; sync"
-	@printf "Staged Pi 4 tryboot files on %s without replacing the normal config.txt or kernel8.img.\n" "$(PI4_REAL_SSH_HOST)"
+pi4-real-tryboot-stage: pi4-real-tryboot-manifest $(PI4_REAL_TRYBOOT_TOOL)
+	@"$(PI4_REAL_TRYBOOT_TOOL)" stage
 
-pi4-real-tryboot-preflight: pi4-real-tryboot-stage
-	@$(PI4_REAL_SSH) "$(PI4_REAL_SSH_HOST)" 'set -e; \
-		echo "host=$$(hostname) kernel=$$(uname -r)"; \
-		test -f "$(PI4_REAL_BOOT_MOUNT)/config.txt"; \
-		test -f "$(PI4_REAL_BOOT_MOUNT)/kernel8.img"; \
-		test -f "$(PI4_REAL_VIBE_DIR)/kernel8.img"; \
-		test -f "$(PI4_REAL_TRYBOOT_CANDIDATE)"; \
-		test ! -f "$(PI4_REAL_TRYBOOT_ACTIVE)"; \
-		for p in /proc/device-tree/chosen/bootloader/partition /proc/device-tree/chosen/bootloader/tryboot /proc/device-tree/chosen/bootloader/rsts; do [ -e "$$p" ] && printf "%s " "$$p" && od -An -tx4 "$$p" || true; done; \
-		sha256sum "$(PI4_REAL_VIBE_DIR)/kernel8.img" "$(PI4_REAL_TRYBOOT_CANDIDATE)" "$(PI4_REAL_BOOT_MOUNT)/SYSTEM/INIT.ELF" "$(PI4_REAL_BOOT_MOUNT)/SYSTEM/ABIPROBE.ELF" "$(PI4_REAL_BOOT_MOUNT)/APPS/DOOM/APP.ELF" "$(PI4_REAL_BOOT_MOUNT)/APPS/QUAKE/APP.ELF"; \
-		printf "tryboot_preflight=OK normal_boot=config.txt,kernel8.img active_tryboot=absent\n"'
+pi4-real-tryboot-preflight: pi4-real-tryboot-stage $(PI4_REAL_TRYBOOT_TOOL)
+	@"$(PI4_REAL_TRYBOOT_TOOL)" preflight
 
-pi4-real-tryboot-arm: pi4-real-tryboot-preflight
-	@test "$(PI4_REAL_ALLOW_REBOOT)" = "1" || { echo "Refusing to reboot hardware; rerun with PI4_REAL_ALLOW_REBOOT=1."; exit 2; }
-	@set -e; \
-	rc=0; \
-	$(PI4_REAL_SSH) "$(PI4_REAL_SSH_HOST)" 'set -e; sudo cp "$(PI4_REAL_TRYBOOT_CANDIDATE)" "$(PI4_REAL_TRYBOOT_ACTIVE)"; sync; echo "tryboot_active=armed"; sudo /usr/sbin/reboot "0 tryboot"' || rc=$$?; \
-	if [ "$$rc" != "0" ] && [ "$$rc" != "255" ]; then exit "$$rc"; fi; \
-	printf "Tryboot reboot command sent to %s.\n" "$(PI4_REAL_SSH_HOST)"
+pi4-real-tryboot-arm: pi4-real-tryboot-preflight $(PI4_REAL_TRYBOOT_TOOL)
+	@"$(PI4_REAL_TRYBOOT_TOOL)" arm
 
 pi4-qemu-command: $(PI4_IMAGE)
 	@printf '%s %s\n' "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_QEMU_ARGS)"
