@@ -7,8 +7,13 @@ MAKE="${MAKE:-make}"
 recipes="$("$MAKE" --no-print-directory -C "$ROOT" -B -n ALLOW_LOCAL_VM=0 DOOM_WAD= build-only)"
 
 while IFS= read -r path; do
-  printf "%s\n" "$recipes" | grep -Eq "nasm -f elf32([[:space:]][^[:space:]]+)*[[:space:]]+$path[[:space:]]+-o[[:space:]]" || {
-    printf "Guest assembly build audit missing NASM recipe for %s\n" "$path" >&2
+  printf "%s\n" "$recipes" | awk -v path="$path" '
+    index($0, " " path " ") &&
+      $0 ~ /(^|[[:space:]])-f[[:space:]]+elf32([[:space:]]|$)/ &&
+      $0 ~ /[[:space:]]-o[[:space:]]/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' || {
+    printf "Guest assembly build audit missing NASM-owned elf32 recipe for %s\n" "$path" >&2
     exit 1
   }
 done <<'EOF'

@@ -12,6 +12,7 @@ sets the artifact paths; callers must set PI4_REAL_SSH_HOST for real hardware
 actions, for example:
 
   make pi4-real-tryboot-arm PI4_REAL_SSH_HOST=pi@raspberrypi.local PI4_REAL_ALLOW_REBOOT=1
+  make pi4-real-tryboot-stage PI4_REAL_DOOM_WAD=/outside/repo/DOOM1.WAD
 
 SSH identity, host aliases, known-host handling, and other local policy belong
 in the user's SSH config. Advanced callers can override PI4_REAL_SSH and
@@ -64,6 +65,13 @@ require_artifacts() {
   require_file "$PI4_DOOM_ELF"
   require_file "$PI4_APP_QUAKE_MANIFEST_TXT"
   require_file "$PI4_QUAKE_ELF"
+  if [ -n "$PI4_REAL_DOOM_WAD" ]; then
+    require_file "$PI4_REAL_DOOM_WAD"
+  fi
+}
+
+doom_wad_required_message() {
+  printf "missing required boot asset: %s/DOOM1.WAD; set PI4_REAL_DOOM_WAD=/path/to/DOOM1.WAD or copy it to the boot partition" "$PI4_REAL_BOOT_MOUNT"
 }
 
 write_manifest() {
@@ -76,6 +84,11 @@ write_manifest() {
     printf "net_status_file=%s\n" "$PI4_REAL_NET_STATUS_FILE"
     printf "tryboot_candidate=%s\n" "$PI4_REAL_TRYBOOT_CANDIDATE"
     printf "tryboot_active=%s\n" "$PI4_REAL_TRYBOOT_ACTIVE"
+    if [ -n "$PI4_REAL_DOOM_WAD" ]; then
+      printf "doom_wad_source=%s\n" "$PI4_REAL_DOOM_WAD"
+    else
+      printf "doom_wad_source=remote:%s/DOOM1.WAD\n" "$PI4_REAL_BOOT_MOUNT"
+    fi
     for artifact in \
       "$PI4_KERNEL8_IMG" \
       "$PI4_TRYBOOT_TXT" \
@@ -88,6 +101,9 @@ write_manifest() {
       "$PI4_QUAKE_ELF"; do
       printf "%s  %s\n" "$(sha256_file "$artifact")" "$artifact"
     done
+    if [ -n "$PI4_REAL_DOOM_WAD" ]; then
+      printf "%s  %s\n" "$(sha256_file "$PI4_REAL_DOOM_WAD")" "$PI4_REAL_DOOM_WAD"
+    fi
     wc -c \
       "$PI4_KERNEL8_IMG" \
       "$PI4_TRYBOOT_TXT" \
@@ -107,11 +123,13 @@ stage_tryboot() {
   require_artifacts
 
   local tmp="/tmp/vibe-os-pi4-stage-$$"
-  local qtmp qboot qvibe qstatus
+  local qtmp qboot qvibe qstatus qdoom qdoom_required
   qtmp="$(remote_quote "$tmp")"
   qboot="$(remote_quote "$PI4_REAL_BOOT_MOUNT")"
   qvibe="$(remote_quote "$PI4_REAL_VIBE_DIR")"
   qstatus="$(remote_quote "$PI4_REAL_NET_STATUS_FILE")"
+  qdoom="$(remote_quote "$PI4_REAL_BOOT_MOUNT/DOOM1.WAD")"
+  qdoom_required="$(remote_quote "$(doom_wad_required_message)")"
 
   ssh_pi "rm -rf $qtmp; mkdir -p $qtmp/vibe $qtmp/SYSTEM $qtmp/APPS/DOOM $qtmp/APPS/QUAKE"
   scp_to_pi "$PI4_KERNEL8_IMG" "$tmp/vibe/kernel8.img"
@@ -123,6 +141,9 @@ stage_tryboot() {
   scp_to_pi "$PI4_DOOM_ELF" "$tmp/APPS/DOOM/APP.ELF"
   scp_to_pi "$PI4_APP_QUAKE_MANIFEST_TXT" "$tmp/APPS/QUAKE/MANIFEST.TXT"
   scp_to_pi "$PI4_QUAKE_ELF" "$tmp/APPS/QUAKE/APP.ELF"
+  if [ -n "$PI4_REAL_DOOM_WAD" ]; then
+    scp_to_pi "$PI4_REAL_DOOM_WAD" "$tmp/DOOM1.WAD"
+  fi
 
   ssh_pi "set -e; \
     sudo mkdir -p $qvibe $qboot/SYSTEM $qboot/APPS/DOOM $qboot/APPS/QUAKE; \
@@ -137,6 +158,7 @@ stage_tryboot() {
     sudo install -m 0644 $qtmp/APPS/DOOM/APP.ELF $qboot/APPS/DOOM/APP.ELF; \
     sudo install -m 0644 $qtmp/APPS/QUAKE/MANIFEST.TXT $qboot/APPS/QUAKE/MANIFEST.TXT; \
     sudo install -m 0644 $qtmp/APPS/QUAKE/APP.ELF $qboot/APPS/QUAKE/APP.ELF; \
+    if [ -f $qtmp/DOOM1.WAD ]; then sudo install -m 0644 $qtmp/DOOM1.WAD $qdoom; else test -s $qdoom || { echo $qdoom_required >&2; exit 1; }; fi; \
     rm -rf $qtmp; \
     sync"
   printf "Staged Pi 4 tryboot files on %s without replacing the normal config.txt or kernel8.img.\n" "$PI4_REAL_SSH_HOST"
@@ -144,6 +166,9 @@ stage_tryboot() {
 
 preflight_tryboot() {
   require_host
+  local qdoom qdoom_required
+  qdoom="$(remote_quote "$PI4_REAL_BOOT_MOUNT/DOOM1.WAD")"
+  qdoom_required="$(remote_quote "$(doom_wad_required_message)")"
   ssh_pi "set -e; \
     echo \"host=\$(hostname) kernel=\$(uname -r)\"; \
     test -f $(remote_quote "$PI4_REAL_BOOT_MOUNT/config.txt"); \
@@ -153,6 +178,7 @@ preflight_tryboot() {
     test -f $(remote_quote "$PI4_REAL_VIBE_DIR/kernel8.img"); \
     test -f $(remote_quote "$PI4_REAL_TRYBOOT_CANDIDATE"); \
     test ! -f $(remote_quote "$PI4_REAL_TRYBOOT_ACTIVE"); \
+    test -s $qdoom || { echo $qdoom_required >&2; exit 1; }; \
     for p in /proc/device-tree/chosen/bootloader/partition /proc/device-tree/chosen/bootloader/tryboot /proc/device-tree/chosen/bootloader/rsts; do \
       [ -e \"\$p\" ] && printf \"%s \" \"\$p\" && od -An -tx4 \"\$p\" || true; \
     done; \
@@ -160,6 +186,7 @@ preflight_tryboot() {
       $(remote_quote "$PI4_REAL_NET_STATUS_FILE") \
       $(remote_quote "$PI4_REAL_VIBE_DIR/kernel8.img") \
       $(remote_quote "$PI4_REAL_TRYBOOT_CANDIDATE") \
+      $qdoom \
       $(remote_quote "$PI4_REAL_BOOT_MOUNT/SYSTEM/INIT.ELF") \
       $(remote_quote "$PI4_REAL_BOOT_MOUNT/SYSTEM/ABIPROBE.ELF") \
       $(remote_quote "$PI4_REAL_BOOT_MOUNT/APPS/DOOM/APP.ELF") \
@@ -192,6 +219,7 @@ PI4_REAL_NET_STATUS_FILE="${PI4_REAL_NET_STATUS_FILE:-$PI4_REAL_BOOT_MOUNT/VIBES
 PI4_REAL_TRYBOOT_CANDIDATE="${PI4_REAL_TRYBOOT_CANDIDATE:-$PI4_REAL_BOOT_MOUNT/tryboot.vibe-os.txt}"
 PI4_REAL_TRYBOOT_ACTIVE="${PI4_REAL_TRYBOOT_ACTIVE:-$PI4_REAL_BOOT_MOUNT/tryboot.txt}"
 PI4_REAL_ALLOW_REBOOT="${PI4_REAL_ALLOW_REBOOT:-0}"
+PI4_REAL_DOOM_WAD="${PI4_REAL_DOOM_WAD:-}"
 
 case "$action" in
   manifest)
