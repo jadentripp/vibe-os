@@ -15,51 +15,80 @@ CHROMIUM_DIR=${CHROMIUM_I386_DIR:-build/chromium-i386}
 RUNTIME_DIR=${CHROMIUM_RUNTIME_I386_DIR:-build/chromium-runtime-i386}
 CHROMIUM_ELF=${CHROMIUM_I386_ELF:-$CHROMIUM_DIR/root/usr/lib/chromium/chromium}
 ICU_DAT=${CHROMIUM_I386_ICU_DAT:-$CHROMIUM_DIR/common-root/usr/lib/chromium/icudtl.dat}
+RESOURCE_DIR=${CHROMIUM_I386_RESOURCE_DIR:-$CHROMIUM_DIR/common-root/usr/lib/chromium}
+CRASHPAD_HANDLER=${CHROMIUM_I386_CRASHPAD_HANDLER:-$RESOURCE_DIR/chrome_crashpad_handler}
 
 MODE=env
+INCLUDE_RESOURCES=${CHROMIUM_I386_INCLUDE_RESOURCES:-0}
 
 usage() {
     cat <<'EOF'
-usage: tools/chromium_i386_smoke_assets.sh [--dry-run|--list]
+usage: tools/chromium_i386_smoke_assets.sh [--dry-run|--list] [--include-resources]
 
 Print IMAGE_EXTRA_ROOT_ELF_ARGS and IMAGE_EXTRA_ROOT_ELF_DEPS for the current
 ignored build/chromium-i386 and build/chromium-runtime-i386 artifacts.
 
-  --dry-run  Print make variable assignments. This is the default.
-  --list     Print one guest=host asset mapping per line.
-  -h, --help Show this help text.
+  --dry-run           Print make variable assignments. This is the default.
+  --list              Print one guest=host asset mapping per line.
+  --include-resources Also stage optional Chromium .pak/snapshot/crashpad files.
+  --no-resources      Do not stage optional Chromium resources. This is the default.
+  -h, --help          Show this help text.
 
 Environment overrides:
   CHROMIUM_I386_DIR
   CHROMIUM_RUNTIME_I386_DIR
   CHROMIUM_I386_ELF
   CHROMIUM_I386_ICU_DAT
+  CHROMIUM_I386_RESOURCE_DIR
+  CHROMIUM_I386_CRASHPAD_HANDLER
+  CHROMIUM_I386_INCLUDE_RESOURCES=1
 
 No files are generated and no VM smoke is run.
 EOF
 }
 
-case "${1:---dry-run}" in
-    --dry-run)
-        MODE=env
-        ;;
-    --list)
-        MODE=list
-        ;;
-    -h|--help)
-        usage
-        exit 0
-        ;;
-    *)
-        usage >&2
-        exit 2
-        ;;
-esac
-
 fail() {
     echo "chromium_i386_smoke_assets: $*" >&2
     exit 1
 }
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --dry-run)
+            MODE=env
+            ;;
+        --list)
+            MODE=list
+            ;;
+        --include-resources)
+            INCLUDE_RESOURCES=1
+            ;;
+        --no-resources)
+            INCLUDE_RESOURCES=0
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+case "$INCLUDE_RESOURCES" in
+    1|yes|true|on)
+        INCLUDE_RESOURCES=1
+        ;;
+    0|no|false|off|'')
+        INCLUDE_RESOURCES=0
+        ;;
+    *)
+        fail "CHROMIUM_I386_INCLUDE_RESOURCES must be 0 or 1"
+        ;;
+esac
 
 [ -f "$CHROMIUM_ELF" ] || fail "missing Chromium ELF: $CHROMIUM_ELF"
 [ -f "$ICU_DAT" ] || fail "missing Chromium ICU data: $ICU_DAT"
@@ -80,8 +109,7 @@ dump_needed() {
     awk -F '	' -v file="$file" '$1 == file { print $2 }' "$NEEDED_INDEX"
 }
 
-tmp_base=${TMPDIR:-/tmp}/vibe-chromium-assets.$$
-mkdir "$tmp_base" || fail "could not create temporary work dir: $tmp_base"
+tmp_base=$(mktemp -d "${TMPDIR:-/tmp}/vibe-chromium-assets.XXXXXX") || fail "could not create temporary work dir"
 trap 'rm -rf "$tmp_base"' EXIT HUP INT TERM
 
 QUEUE=$tmp_base/queue
@@ -94,6 +122,7 @@ NEEDED_INDEX=$tmp_base/needed-index
 : > "$QUEUE"
 : > "$SEEN"
 : > "$MISSING"
+OPTIONAL_RESOURCE_MISSING=
 
 find "$RUNTIME_DIR" \( -type f -o -type l \) \
     \( -name 'lib*.so' -o -name 'lib*.so.[0-9]*' -o -name 'ld-linux.so.2' \) \
@@ -104,7 +133,11 @@ find "$RUNTIME_DIR" \( -type f -o -type l \) \
     done > "$LIB_INDEX"
 
 LIB_PATHS=$(awk -F '	' '{ print $2 }' "$LIB_INDEX")
-"$OBJDUMP" -p "$CHROMIUM_ELF" $LIB_PATHS > "$DYNAMIC_DUMP"
+ELF_ROOTS=$CHROMIUM_ELF
+if [ "$INCLUDE_RESOURCES" = 1 ] && [ -f "$CRASHPAD_HANDLER" ]; then
+    ELF_ROOTS="$ELF_ROOTS $CRASHPAD_HANDLER"
+fi
+"$OBJDUMP" -p $ELF_ROOTS $LIB_PATHS > "$DYNAMIC_DUMP"
 awk '
 /:	file format/ {
     path = $0
@@ -225,6 +258,11 @@ add_asset /BIN/ICUDTL.DAT "$ICU_DAT"
 for needed in $(dump_needed "$CHROMIUM_ELF"); do
     enqueue_needed "$needed"
 done
+if [ "$INCLUDE_RESOURCES" = 1 ] && [ -f "$CRASHPAD_HANDLER" ]; then
+    for needed in $(dump_needed "$CRASHPAD_HANDLER"); do
+        enqueue_needed "$needed"
+    done
+fi
 
 while [ -s "$QUEUE" ]; do
     needed=$(sed -n '1p' "$QUEUE")
@@ -254,6 +292,35 @@ if [ -s "$MISSING" ]; then
     echo "missing recursive Chromium runtime libraries:" >&2
     sed 's/^/  /' "$MISSING" >&2
     exit 1
+fi
+
+add_optional_resource() {
+    guest=$1
+    host=$2
+    label=$3
+
+    if [ -e "$host" ]; then
+        add_asset "$guest" "$host"
+        return 0
+    fi
+
+    OPTIONAL_RESOURCE_MISSING="${OPTIONAL_RESOURCE_MISSING}${label}: ${host}
+"
+}
+
+if [ "$INCLUDE_RESOURCES" = 1 ]; then
+    add_optional_resource /CHROMIUM/RESOURCE.PAK "$RESOURCE_DIR/resources.pak" resources.pak
+    add_optional_resource /CHROMIUM/CHR100.PAK "$RESOURCE_DIR/chrome_100_percent.pak" chrome_100_percent.pak
+    add_optional_resource /CHROMIUM/CHR200.PAK "$RESOURCE_DIR/chrome_200_percent.pak" chrome_200_percent.pak
+    add_optional_resource /CHROMIUM/EN-US.PAK "$RESOURCE_DIR/locales/en-US.pak" locales/en-US.pak
+    add_optional_resource /CHROMIUM/SNAPBLOB.BIN "$RESOURCE_DIR/snapshot_blob.bin" snapshot_blob.bin
+    add_optional_resource /CHROMIUM/V8CONTXT.BIN "$RESOURCE_DIR/v8_context_snapshot.bin" v8_context_snapshot.bin
+    add_optional_resource /CHROMIUM/CRASHPAD.ELF "$CRASHPAD_HANDLER" chrome_crashpad_handler
+
+    if [ -n "$OPTIONAL_RESOURCE_MISSING" ]; then
+        echo "missing optional Chromium runtime resources:" >&2
+        printf '%s' "$OPTIONAL_RESOURCE_MISSING" | sed 's/^/  /' >&2
+    fi
 fi
 
 case "$MODE" in

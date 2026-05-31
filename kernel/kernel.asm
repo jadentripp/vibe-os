@@ -12611,6 +12611,9 @@ storage_init:
     mov dword [large_elf_demand_pages], 0
     mov dword [large_elf_demand_failures], 0
     mov dword [large_elf_demand_status], 0
+    mov dword [large_elf_demand_sequence], 0
+    mov dword [large_elf_demand_handled_sequence], 0
+    mov dword [large_elf_demand_refaults], 0
     mov dword [large_elf_demand_last_addr], 0
     mov dword [large_elf_demand_last_page], 0
     mov dword [large_elf_demand_last_segment], 0
@@ -12631,6 +12634,10 @@ storage_init:
     mov dword [large_elf_demand_stack1], 0
     mov dword [large_elf_demand_stack2], 0
     mov dword [large_elf_demand_stack3], 0
+    mov dword [linux_syscall_after_demand_sequence], 0
+    mov dword [linux_syscall_after_demand_count], 0
+    mov dword [linux_syscall_after_demand_nr], 0
+    mov dword [linux_syscall_after_demand_eip], 0
     mov dword [linux_mprotect_last_start], 0
     mov dword [linux_mprotect_last_end], 0
     mov dword [linux_mprotect_last_prot], 0
@@ -22361,6 +22368,9 @@ process_exec_large_linux_preflight:
     mov dword [large_elf_demand_pages], 0
     mov dword [large_elf_demand_failures], 0
     mov dword [large_elf_demand_status], 0
+    mov dword [large_elf_demand_sequence], 0
+    mov dword [large_elf_demand_handled_sequence], 0
+    mov dword [large_elf_demand_refaults], 0
     mov dword [large_elf_demand_last_addr], 0
     mov dword [large_elf_demand_last_page], 0
     mov dword [large_elf_demand_last_segment], 0
@@ -22381,6 +22391,10 @@ process_exec_large_linux_preflight:
     mov dword [large_elf_demand_stack1], 0
     mov dword [large_elf_demand_stack2], 0
     mov dword [large_elf_demand_stack3], 0
+    mov dword [linux_syscall_after_demand_sequence], 0
+    mov dword [linux_syscall_after_demand_count], 0
+    mov dword [linux_syscall_after_demand_nr], 0
+    mov dword [linux_syscall_after_demand_eip], 0
     mov dword [linux_mprotect_last_start], 0
     mov dword [linux_mprotect_last_end], 0
     mov dword [linux_mprotect_last_prot], 0
@@ -23039,8 +23053,18 @@ large_elf_demand_page_fault:
     mov [process_exec_target], esi
 
     inc dword [large_elf_demand_attempts]
+    inc dword [large_elf_demand_sequence]
     mov dword [large_elf_demand_status], 1
     mov eax, [fault_cr2]
+    cmp eax, [large_elf_demand_last_addr]
+    je .same_fault_addr
+    mov dword [large_elf_demand_refaults], 0
+    jmp .fault_addr_ready
+
+.same_fault_addr:
+    inc dword [large_elf_demand_refaults]
+
+.fault_addr_ready:
     mov [large_elf_demand_last_addr], eax
     and eax, 0xfffff000
     mov [large_elf_demand_last_page], eax
@@ -23156,6 +23180,12 @@ large_elf_demand_page_fault:
     mov eax, [large_elf_demand_last_page]
     invlpg [eax]
     mov dword [large_elf_demand_status], 2
+    mov eax, [large_elf_demand_sequence]
+    mov [large_elf_demand_handled_sequence], eax
+    mov dword [linux_syscall_after_demand_sequence], 0
+    mov dword [linux_syscall_after_demand_count], 0
+    mov dword [linux_syscall_after_demand_nr], 0
+    mov dword [linux_syscall_after_demand_eip], 0
     call linux_m1_smoke_maybe_write_runtime_status
     clc
     jmp .done
@@ -24172,6 +24202,9 @@ linux_m1_smoke_launch:
 %endif
 %endif
 %endif
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_m1_smoke_stage_chromium
+%else
 %ifdef LINUX_M1_EXEC_LIMITS_SMOKE
     call linux_m1_smoke_stage_exec_limits
 %else
@@ -24188,6 +24221,7 @@ linux_m1_smoke_launch:
     call linux_m1_smoke_stage_ld_debug
 %else
     call sys_exec_stage_kernel_arg
+%endif
 %endif
 %endif
 %endif
@@ -24278,6 +24312,46 @@ linux_m1_smoke_launch:
 .done:
     call write_smoke_status
     ret
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_m1_smoke_stage_chromium:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, exec_path_linux_chromium
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_no_sandbox
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_no_zygote
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_single_process
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_gpu
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_headless
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_dev_shm
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_no_first_run
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_background_networking
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_user_data_dir
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_about_blank
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
 %ifdef LINUX_M1_EXEC_LIMITS_SMOKE
 linux_m1_smoke_stage_exec_limits:
     call sys_exec_clear_args
@@ -25472,6 +25546,19 @@ linux_syscall_note_enter:
     mov [linux_sys_last_arg3], esi
     mov [linux_sys_last_arg4], edi
     mov [linux_sys_last_arg5], ebp
+    cmp dword [large_elf_demand_handled_sequence], 0
+    je .write_status
+    inc dword [linux_syscall_after_demand_count]
+    cmp dword [linux_syscall_after_demand_sequence], 0
+    jne .write_status
+    mov eax, [linux_syscall_count]
+    mov [linux_syscall_after_demand_sequence], eax
+    mov eax, [current_syscall_number]
+    mov [linux_syscall_after_demand_nr], eax
+    mov eax, [syscall_entry_eip_last]
+    mov [linux_syscall_after_demand_eip], eax
+
+.write_status:
     call linux_m1_smoke_maybe_write_runtime_status
     popad
     ret
@@ -35168,6 +35255,38 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [large_elf_demand_stack3]
     call smoke_write_slash_hex32
+    mov esi, smoke_demstatus_text
+    call smoke_copy_string
+    mov edx, [large_elf_demand_status]
+    call smoke_write_hex32
+    mov edx, [large_elf_demand_attempts]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_pages]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_failures]
+    call smoke_write_slash_hex32
+    mov edx, [fault_vector]
+    call smoke_write_slash_hex32
+    mov edx, [fault_contained]
+    call smoke_write_slash_hex32
+    mov edx, [fault_kernel_panic_count]
+    call smoke_write_slash_hex32
+    mov esi, smoke_demseq_text
+    call smoke_copy_string
+    mov edx, [large_elf_demand_sequence]
+    call smoke_write_hex32
+    mov edx, [large_elf_demand_handled_sequence]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_refaults]
+    call smoke_write_slash_hex32
+    mov edx, [linux_syscall_after_demand_sequence]
+    call smoke_write_slash_hex32
+    mov edx, [linux_syscall_after_demand_count]
+    call smoke_write_slash_hex32
+    mov edx, [linux_syscall_after_demand_nr]
+    call smoke_write_slash_hex32
+    mov edx, [linux_syscall_after_demand_eip]
+    call smoke_write_slash_hex32
     mov esi, smoke_execres_text
     call smoke_copy_string
     mov edx, [sys_exec_last_result]
@@ -35500,6 +35619,34 @@ write_smoke_status:
     mov edx, [process_status_last_state]
     call smoke_write_slash_hex32
     mov edx, [process_status_last_ticks]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_pexit_text
+    call smoke_copy_string
+    mov edx, [process_exit_last_pid]
+    call smoke_write_hex32
+    mov edx, [process_exit_last_status]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_last_state]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_zombies]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_teardowns]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_pfault_text
+    call smoke_copy_string
+    mov edx, [process_fault_last_pid]
+    call smoke_write_hex32
+    mov edx, [process_fault_last_status]
+    call smoke_write_slash_hex32
+    mov edx, [process_fault_last_state]
+    call smoke_write_slash_hex32
+    mov edx, [fault_pid]
+    call smoke_write_slash_hex32
+    mov edx, [fault_vector]
+    call smoke_write_slash_hex32
+    mov edx, [fault_cr2]
     call smoke_write_slash_hex32
 
     mov esi, smoke_uproc_text
@@ -35966,6 +36113,21 @@ write_smoke_status:
     mov edx, [fault_kernel_panic_count]
     call smoke_write_slash_hex32
     mov edx, [fault_contained]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_faultres_text
+    call smoke_copy_string
+    mov edx, [fault_expected_recovered_count]
+    call smoke_write_hex32
+    mov edx, [fault_user_contained_count]
+    call smoke_write_slash_hex32
+    mov edx, [fault_kernel_panic_count]
+    call smoke_write_slash_hex32
+    mov edx, [fault_contained]
+    call smoke_write_slash_hex32
+    mov edx, [fault_source]
+    call smoke_write_slash_hex32
+    mov edx, [fault_mode]
     call smoke_write_slash_hex32
 
     mov esi, smoke_faultregs_text
@@ -41534,6 +41696,8 @@ smoke_largebias_text db " largebias=", 0
 smoke_largemap_text db " largemap=", 0
 smoke_largedem_text db " largedem=", 0
 smoke_largedctx_text db " largedctx=", 0
+smoke_demstatus_text db " demstatus=", 0
+smoke_demseq_text db " dseq=", 0
 smoke_execres_text db " execres=", 0
 smoke_exec_target_text db " target=", 0
 smoke_exec_ppid_text db " ppid=", 0
@@ -41569,6 +41733,8 @@ smoke_abiexec_argvsrc_text db " abiargvsrc=", 0
 smoke_abiprobe_text db " abiprobe=", 0
 smoke_abiflags_text db " abiflags=", 0
 smoke_pstatus_text db " pstat=", 0
+smoke_pexit_text db " pexit=", 0
+smoke_pfault_text db " pfault=", 0
 smoke_uproc_text db " uproc=", 0
 smoke_yield_text db " yield=", 0
 smoke_kblock_text db " kblock=", 0
@@ -41600,6 +41766,7 @@ smoke_pfframe_text db " pf=", 0
 smoke_faultsrc_text db " faultsrc=", 0
 smoke_faultmode_text db " faultmode=", 0
 smoke_faultcontain_text db " faultcontain=", 0
+smoke_faultres_text db " faultres=", 0
 smoke_faultregs_text db " regs=", 0
 smoke_faultinsn_text db " faultinsn=", 0
 smoke_ldmap_text db " ldmap=", 0
@@ -42338,6 +42505,18 @@ linux_library_alias_name_table:
     dd linux_libgio_name_83
     dd linux_libgio_name_83
     dd linux_libgio_name_83
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+chromium_arg_no_sandbox db "--no-sandbox", 0
+chromium_arg_no_zygote db "--no-zygote", 0
+chromium_arg_single_process db "--single-process", 0
+chromium_arg_disable_gpu db "--disable-gpu", 0
+chromium_arg_headless db "--headless", 0
+chromium_arg_disable_dev_shm db "--disable-dev-shm-usage", 0
+chromium_arg_no_first_run db "--no-first-run", 0
+chromium_arg_disable_background_networking db "--disable-background-networking", 0
+chromium_arg_user_data_dir db "--user-data-dir=/tmp/chromium-profile", 0
+chromium_arg_about_blank db "about:blank", 0
+%endif
 busybox_arg_argv0 db "busybox", 0
 %ifdef LINUX_M1_BUSYBOX_SMOKE
 busybox_arg_echo db "echo", 0
@@ -43309,6 +43488,9 @@ large_elf_demand_attempts dd 0
 large_elf_demand_pages dd 0
 large_elf_demand_failures dd 0
 large_elf_demand_status dd 0
+large_elf_demand_sequence dd 0
+large_elf_demand_handled_sequence dd 0
+large_elf_demand_refaults dd 0
 large_elf_demand_last_addr dd 0
 large_elf_demand_last_page dd 0
 large_elf_demand_last_segment dd 0
@@ -43646,6 +43828,10 @@ linux_sys_last_error_arg0 dd 0
 linux_sys_last_error_arg1 dd 0
 linux_sys_last_error_arg2 dd 0
 linux_sys_last_error_arg3 dd 0
+linux_syscall_after_demand_sequence dd 0
+linux_syscall_after_demand_count dd 0
+linux_syscall_after_demand_nr dd 0
+linux_syscall_after_demand_eip dd 0
 linux_socket_last_call dd 0
 linux_socket_last_subcall dd 0
 linux_socket_last_fd dd 0
