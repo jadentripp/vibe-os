@@ -582,10 +582,7 @@ _start:
     blr x16
     mov x0, #PI4_NET_PHASE_STORAGE_PROBE_BEGIN
     bl pi4_record_net_phase
-    ldr x16, =pi4_storage_reset_status
-    blr x16
-    ldr x16, =pi4_storage_probe_controller_status
-    blr x16
+    bl pi4_prepare_net_status_file_metadata
     mov x0, #PI4_NET_PHASE_STORAGE_PROBED
     bl pi4_record_net_phase
     ldr x0, =pi4_net_static_sector_storage_probed
@@ -2656,6 +2653,109 @@ pi4_record_net_status_write_result:
     str x2, [x1]
     ret
 .size pi4_record_net_status_write_result, . - pi4_record_net_status_write_result
+
+.type pi4_prepare_net_status_file_metadata, %function
+pi4_prepare_net_status_file_metadata:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    str x25, [sp, #64]
+
+    ldr x16, =pi4_storage_reset_status
+    blr x16
+    ldr x16, =pi4_storage_probe_controller_status
+    blr x16
+
+    mov x0, xzr
+    mov x1, #1
+    adr x2, pi4_start_storage_mbr_sector_buffer
+    ldr x16, =pi4_storage_read_blocks
+    blr x16
+    cbnz x0, .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_start_storage_mbr_sector_buffer
+    adr x1, pi4_storage_boot_mbr_sector_buffer
+    str x0, [x1]
+    ldr x16, =pi4_storage_parse_mbr
+    blr x16
+    cbz w0, .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_storage_status_mbr_part_lba
+    ldr x19, [x0]
+    mov x0, x19
+    mov x1, #1
+    adr x2, pi4_start_storage_bpb_sector_buffer
+    ldr x16, =pi4_storage_read_blocks
+    blr x16
+    cbnz x0, .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_start_storage_bpb_sector_buffer
+    adr x1, pi4_storage_boot_bpb_sector_buffer
+    str x0, [x1]
+    mov x1, x19
+    ldr x16, =pi4_storage_parse_fat_bpb
+    blr x16
+    cbz w0, .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_storage_status_pi4fat
+    ldr w1, =PI4_START_STORAGE_BPB_OK
+    str w1, [x0]
+
+    adr x0, pi4_storage_status_bpb_bytes_per_sector
+    ldr x20, [x0]
+    cmp x20, #PI4_START_STORAGE_SECTOR_BYTES
+    b.ne .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_storage_status_bpb_root_dir_lba
+    ldr x21, [x0]
+    adr x0, pi4_storage_status_bpb_root_dir_sectors
+    ldr x22, [x0]
+    cbnz x22, .Lpi4_prepare_net_status_have_root_request
+
+    adr x0, pi4_storage_status_bpb_root_cluster
+    ldr x23, [x0]
+    cmp x23, #2
+    b.lo .Lpi4_prepare_net_status_file_metadata_done
+    adr x0, pi4_storage_status_bpb_sectors_per_cluster
+    ldr x22, [x0]
+    cbz x22, .Lpi4_prepare_net_status_file_metadata_done
+    adr x0, pi4_storage_status_bpb_data_lba
+    ldr x21, [x0]
+    sub x23, x23, #2
+    madd x21, x23, x22, x21
+
+.Lpi4_prepare_net_status_have_root_request:
+    cbz x22, .Lpi4_prepare_net_status_file_metadata_done
+    mov x23, #PI4_START_STORAGE_MAX_READ_SECTORS
+    cmp x22, x23
+    csel x22, x22, x23, lo
+    mov x24, #PI4_START_STORAGE_SECTOR_BYTES
+    mul x24, x22, x24
+
+    mov x0, x21
+    mov x1, x22
+    adr x2, pi4_start_storage_root_dir_buffer
+    ldr x16, =pi4_storage_read_blocks
+    blr x16
+    cbnz x0, .Lpi4_prepare_net_status_file_metadata_done
+
+    adr x0, pi4_start_storage_bpb_sector_buffer
+    mov x1, x19
+    adr x2, pi4_start_storage_root_dir_buffer
+    mov x3, x24
+    ldr x16, =pi4_storage_parse_fat_root
+    blr x16
+
+.Lpi4_prepare_net_status_file_metadata_done:
+    ldr x25, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_prepare_net_status_file_metadata, . - pi4_prepare_net_status_file_metadata
 
 .type pi4_write_net_status_sector_once, %function
 pi4_write_net_status_sector_once:

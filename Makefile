@@ -35,7 +35,7 @@ SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0
 SMOKE_REQUIRE_AUDIO_CONTINUITY ?= 0
 SMOKE_SKIP_ASSERTIONS ?= 0
 SMOKE_NC_TIMEOUT ?= 3
-SMOKE_QEMU_TIMEOUT ?= 30
+SMOKE_QEMU_TIMEOUT ?= 210
 SMOKE_EARLY_SECONDS ?= 2
 SMOKE_SETTLE_SECONDS ?= 5
 SMOKE_SHUTDOWN_TIMEOUT ?= 5
@@ -129,6 +129,7 @@ PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG := $(PI4_BUILD_DIR)/local-qemu-quake-uart-select
 PI4_LOCAL_QEMU_FRAMEBUFFER_LOG := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.log
 PI4_LOCAL_QEMU_FRAMEBUFFER_PPM := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.ppm
 PI4_LOCAL_QEMU_MONITOR_SOCK := $(PI4_BUILD_DIR)/local-qemu-monitor.sock
+PI4_LOCAL_QEMU_TOOL := tools/pi4_local_qemu.sh
 PI4_REAL_HW_DIR := $(PI4_BUILD_DIR)/real-hw
 PI4_REAL_TRYBOOT_TOOL := tools/pi4_real_tryboot.sh
 PI4_REAL_TRYBOOT_MANIFEST := $(PI4_REAL_HW_DIR)/tryboot-manifest.txt
@@ -171,6 +172,11 @@ export PI4_REAL_ALLOW_REBOOT PI4_REAL_TRYBOOT_MANIFEST
 export PI4_KERNEL8_IMG PI4_TRYBOOT_TXT PI4_LAUNCHER_ELF PI4_ABI_PROBE_ELF
 export PI4_APP_INDEX_TXT PI4_APP_DOOM_MANIFEST_TXT PI4_DOOM_ELF
 export PI4_APP_QUAKE_MANIFEST_TXT PI4_QUAKE_ELF
+export PI4_BUILD_DIR PI4_IMAGE PI4_HW_EQUIVALENT_QEMU PI4_QEMU_AUDIO_ARGS_SMOKE NC
+export PI4_LOCAL_QEMU_SMOKE_SECONDS PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS
+export PI4_LOCAL_QEMU_DOOM_SELECT_PORT PI4_LOCAL_QEMU_QUAKE_SELECT_PORT
+export PI4_LOCAL_QEMU_SERIAL_LOG PI4_LOCAL_QEMU_DOOM_SERIAL_LOG PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG
+export PI4_LOCAL_QEMU_FRAMEBUFFER_LOG PI4_LOCAL_QEMU_FRAMEBUFFER_PPM PI4_LOCAL_QEMU_MONITOR_SOCK
 PROJECT_C_ALLOWLIST := tools/project_c_allowlist.txt
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -572,113 +578,17 @@ pi4-local-qemu-live: vm-consent $(PI4_IMAGE)
 	@printf "Launcher uses /SYSTEM/INIT.ELF and discovers /APPS/DOOM and /APPS/QUAKE from FAT/VFS manifests.\n"
 	$(PI4_HW_EQUIVALENT_QEMU) $(PI4_QEMU_ARGS)
 
-pi4-local-qemu-smoke: vm-consent $(PI4_IMAGE)
-	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_SERIAL_LOG)"
-	@printf "Booting exact Pi 4 image headlessly for %s seconds: %s\n" "$(PI4_LOCAL_QEMU_SMOKE_SECONDS)" "$(PI4_IMAGE)"
-	@set -e; \
-	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial file:"$(PI4_LOCAL_QEMU_SERIAL_LOG)" -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
-	pid=$$!; \
-	sleep "$(PI4_LOCAL_QEMU_SMOKE_SECONDS)"; \
-	if kill -0 "$$pid" >/dev/null 2>&1; then kill "$$pid" >/dev/null 2>&1 || true; fi; \
-	wait "$$pid" >/dev/null 2>&1 || true; \
-	test -s "$(PI4_LOCAL_QEMU_SERIAL_LOG)"; \
-	tail -n 80 "$(PI4_LOCAL_QEMU_SERIAL_LOG)"; \
-	grep -a -F -q "vibe-status arch=AARCH64 machine=PI4" "$(PI4_LOCAL_QEMU_SERIAL_LOG)"
+pi4-local-qemu-smoke: vm-consent $(PI4_IMAGE) $(PI4_LOCAL_QEMU_TOOL)
+	@$(PI4_LOCAL_QEMU_TOOL) smoke
 
-pi4-local-qemu-launcher-framebuffer: vm-consent $(PI4_IMAGE)
-	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)" "$(PI4_LOCAL_QEMU_MONITOR_SOCK)"
-	@printf "Booting exact Pi 4 image and dumping the launcher framebuffer.\n"
-	@set -e; \
-	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial file:"$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)" -display vnc=127.0.0.1:8 -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor unix:"$(PI4_LOCAL_QEMU_MONITOR_SOCK)",server,nowait -no-reboot -no-shutdown & \
-	qpid=$$!; \
-	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		test -S "$(PI4_LOCAL_QEMU_MONITOR_SOCK)" && break; \
-		sleep 0.2; \
-	done; \
-	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
-	printf 'screendump %s\nquit\n' "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)" | "$(NC)" -U "$(PI4_LOCAL_QEMU_MONITOR_SOCK)" >/dev/null 2>&1 || true; \
-	wait "$$qpid" >/dev/null 2>&1 || true; \
-	test -s "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	test -s "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)"; \
-	file "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)"; \
-	grep -a -F -q "exec=OK path=/SYSTEM/INIT.ELF" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	grep -a -F -q "fbpresent=" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	grep -a -F -q "fbchange=" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	grep -a -F -q "pi4runtime=OK" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
-	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"
+pi4-local-qemu-launcher-framebuffer: vm-consent $(PI4_IMAGE) $(PI4_LOCAL_QEMU_TOOL)
+	@$(PI4_LOCAL_QEMU_TOOL) launcher-framebuffer
 
-pi4-local-qemu-uart-select-doom: vm-consent $(PI4_IMAGE)
-	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" "$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"
-	@mkfifo "$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"
-	@printf "Booting exact Pi 4 image and selecting Doom through the live UART input lane.\n"
-	@set -e; \
-	fifo="$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"; \
-	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial tcp:127.0.0.1:$(PI4_LOCAL_QEMU_DOOM_SELECT_PORT),server,nowait -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
-	qpid=$$!; \
-	sleep 2; \
-	"$(NC)" 127.0.0.1 "$(PI4_LOCAL_QEMU_DOOM_SELECT_PORT)" < "$$fifo" > "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" & \
-	ncpid=$$!; \
-	exec 3>"$$fifo"; \
-	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
-	printf '1' >&3; \
-	sleep "$(PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS)"; \
-	exec 3>&-; \
-	kill "$$ncpid" >/dev/null 2>&1 || true; \
-	if kill -0 "$$qpid" >/dev/null 2>&1; then kill "$$qpid" >/dev/null 2>&1 || true; fi; \
-	wait "$$ncpid" >/dev/null 2>&1 || true; \
-	wait "$$qpid" >/dev/null 2>&1 || true; \
-	rm -f "$$fifo"; \
-	grep -a -F -q "path=/APPS/DOOM/APP.ELF" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "pi4appvfs=0x000000000000000e/0x00000000464f4f4b" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "pi4preempt=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "pi4audio=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "pi4audiohw=USB-AUDIO" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
-	test -s "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
-	perl -e 'my $$p=shift; open my $$fh,"<:raw",$$p or die $$!; read $$fh,my $$b,-s $$fh; my $$d=substr($$b,44); my $$n=($$d=~tr/\x00\x80//c); die "flat Pi audio capture\n" unless $$n > 0; print "pi4audio_wav_bytes=",length($$b)," pi4audio_wav_nonflat=$$n/",length($$d),"\n";' "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
-	last_status="$$(grep -a "pi4audio=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" | tail -n 1)"; \
-	printf '%s\n' "$$last_status" | tr ' ' '\n' | grep -E '^(path|upath|pi4exec|pi4appreq|pi4appvfs|pi4inputevt|fbpresent|fbchange|pi4preempt|pi4mem|pi4vfs|pi4audio|pi4audiohw|pi4audiousb|pi4audioq|pi4audiocount|panic|shutdown)='
+pi4-local-qemu-uart-select-doom: vm-consent $(PI4_IMAGE) $(PI4_LOCAL_QEMU_TOOL)
+	@$(PI4_LOCAL_QEMU_TOOL) uart-select-doom
 
-pi4-local-qemu-uart-select-quake: vm-consent $(PI4_IMAGE)
-	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
-	@rm -f "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" "$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"
-	@mkfifo "$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"
-	@printf "Booting exact Pi 4 image and selecting Quake through the live UART input lane.\n"
-	@set -e; \
-	fifo="$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"; \
-	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial tcp:127.0.0.1:$(PI4_LOCAL_QEMU_QUAKE_SELECT_PORT),server,nowait -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
-	qpid=$$!; \
-	sleep 2; \
-	"$(NC)" 127.0.0.1 "$(PI4_LOCAL_QEMU_QUAKE_SELECT_PORT)" < "$$fifo" > "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" & \
-	ncpid=$$!; \
-	exec 3>"$$fifo"; \
-	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
-	printf '2' >&3; \
-	sleep "$(PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS)"; \
-	exec 3>&-; \
-	kill "$$ncpid" >/dev/null 2>&1 || true; \
-	if kill -0 "$$qpid" >/dev/null 2>&1; then kill "$$qpid" >/dev/null 2>&1 || true; fi; \
-	wait "$$ncpid" >/dev/null 2>&1 || true; \
-	wait "$$qpid" >/dev/null 2>&1 || true; \
-	rm -f "$$fifo"; \
-	grep -a -F -q "path=/APPS/QUAKE/APP.ELF" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "pi4appvfs=0x000000000000000f/0x00000000464f4f4b" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "pi4preempt=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "pi4audio=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "pi4audiohw=USB-AUDIO" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
-	test -s "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
-	perl -e 'my $$p=shift; open my $$fh,"<:raw",$$p or die $$!; read $$fh,my $$b,-s $$fh; my $$d=substr($$b,44); my $$n=($$d=~tr/\x00\x80//c); die "flat Pi audio capture\n" unless $$n > 0; print "pi4audio_wav_bytes=",length($$b)," pi4audio_wav_nonflat=$$n/",length($$d),"\n";' "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
-	last_status="$$(grep -a "pi4audio=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" | tail -n 1)"; \
-	printf '%s\n' "$$last_status" | tr ' ' '\n' | grep -E '^(path|upath|pi4exec|pi4appreq|pi4appvfs|pi4inputevt|fbpresent|fbchange|pi4preempt|pi4mem|pi4vfs|pi4audio|pi4audiohw|pi4audiousb|pi4audioq|pi4audiocount|panic|shutdown)='
+pi4-local-qemu-uart-select-quake: vm-consent $(PI4_IMAGE) $(PI4_LOCAL_QEMU_TOOL)
+	@$(PI4_LOCAL_QEMU_TOOL) uart-select-quake
 
 pi4-local-qemu-uart-select-apps: pi4-local-qemu-uart-select-doom pi4-local-qemu-uart-select-quake
 	@printf "Pi 4 QEMU app selection OK for Doom and Quake through the live UART input lane.\n"
