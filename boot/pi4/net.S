@@ -2502,6 +2502,7 @@ pi4_net_status_tcp_dst_port:
 pi4_net_status_tcp_last_seq:
     .quad 0
 pi4_net_status_tcp_last_ack:
+    .quad 0
 pi4_net_status_tcp_checksum:
     .quad 0
 pi4_net_status_tcp_syns:
@@ -2509,6 +2510,7 @@ pi4_net_status_tcp_syns:
 pi4_net_status_tcp_synacks:
     .quad 0
 pi4_net_status_tcp_banners:
+    .quad 0
 pi4_net_status_udp_probes:
     .quad 0
 pi4_net_status_values_end:
