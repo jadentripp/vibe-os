@@ -3,11 +3,12 @@ set -euo pipefail
 
 mode="${1:-}"
 if [ -z "$mode" ]; then
-  echo "usage: tools/host_checks.sh {no-python|project-c-inventory|pi4-assembly-source-gate|pi4-image-inspect|quake-status-proof|persistence-image-check}" >&2
+  echo "usage: tools/host_checks.sh {no-python|project-c-inventory|pi4-assembly-source-gate|pi4-image-inspect|playability-host-check|quake-status-proof|persistence-image-check}" >&2
   exit 2
 fi
 
 BUILD_DIR="${BUILD_DIR:-build}"
+MAKE_BIN="${MAKE:-make}"
 PROJECT_C_ALLOWLIST="${PROJECT_C_ALLOWLIST:-tools/project_c_allowlist.txt}"
 IMAGE="${IMAGE:-$BUILD_DIR/disk.img}"
 IMAGE_BUILDER="${IMAGE_BUILDER:-$BUILD_DIR/make_wad_image}"
@@ -91,6 +92,16 @@ pi4_image_inspect() {
   ! grep -a -E -q "PAYLOAD[0-9]+\\.ELF" "$PI4_IMAGE"
 }
 
+playability_host_check() {
+  printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
+  "$MAKE_BIN" --no-print-directory clean
+  "$MAKE_BIN" --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
+  "$MAKE_BIN" --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= test
+  git diff --check
+  git diff --cached --check
+  printf "Playability host check OK: assembly build path and minimal host status proof passed without local QEMU.\n"
+}
+
 quake_status_proof() {
   local status_txt
 
@@ -148,6 +159,9 @@ case "$mode" in
     ;;
   pi4-image-inspect)
     pi4_image_inspect
+    ;;
+  playability-host-check)
+    playability_host_check
     ;;
   quake-status-proof)
     quake_status_proof

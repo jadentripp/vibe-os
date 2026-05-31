@@ -312,14 +312,8 @@ play:
 play-image:
 	@tools/play_local.sh --prepare-only
 
-playability-host-check:
-	@printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
-	$(MAKE) --no-print-directory clean
-	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
-	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= test
-	git diff --check
-	git diff --cached --check
-	@printf "Playability host check OK: assembly build path and minimal host status proof passed without local QEMU.\n"
+playability-host-check: $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) playability-host-check
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }
