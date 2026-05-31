@@ -640,6 +640,14 @@ PROC_STATE_SLEEPING equ 5
 PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 7
 PROCESS_GENERIC_SLOT_COUNT equ 3
+PROCESS_FORK_FAIL_NONE equ 0
+PROCESS_FORK_FAIL_NO_SLOT equ 1
+PROCESS_FORK_FAIL_VM_COPY equ 2
+PROCESS_FORK_FAIL_PMM_PAGE equ 3
+PROCESS_FORK_FAIL_ALIAS_MAP equ 4
+PROCESS_FORK_FAIL_CHILD_PTE equ 5
+PROCESS_FORK_FAIL_FD_CLONE equ 6
+PROCESS_FORK_FAIL_UNSUPPORTED equ 7
 PROCESS_RECORD_BYTES equ 248
 PERSONALITY_NATIVE equ 0
 PERSONALITY_LINUX equ 1
@@ -18785,6 +18793,12 @@ scheduler_init:
     mov dword [process_fork_child_return], 0xffffffff
     mov dword [process_fork_parent_proc], 0
     mov dword [process_fork_child_proc], 0
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NONE
+    mov dword [process_fork_last_errno], 0
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_start], eax
+    mov dword [process_fork_pmm_free_at_failure], 0
+    mov dword [process_fork_failure_vaddr], 0
     mov dword [process_exit_parent_pid], 0xffffffff
     mov dword [process_exit_resumed_pid], 0xffffffff
     mov dword [process_exit_child_ptr], 0
@@ -19687,6 +19701,10 @@ process_alloc_fork_child_slot:
     jmp .done
 
 .none:
+    inc dword [process_generic_slot_failures]
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NO_SLOT
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
     stc
 
 .done:
@@ -19795,6 +19813,8 @@ process_clone_user_vm:
     mov dword [process_fork_parent_phys], 0
     mov dword [process_fork_copy_phys], 0
     call pmm_refresh_frame_counters
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_start], eax
     mov esi, [process_fork_parent_proc]
     mov edi, [process_fork_child_proc]
     cmp esi, 0
@@ -19859,6 +19879,15 @@ process_clone_user_vm:
     jmp .done
 
 .fail:
+    cmp dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NONE
+    jne .fail_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_VM_COPY
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    mov eax, [process_fork_copy_vaddr]
+    mov [process_fork_failure_vaddr], eax
+
+.fail_ready:
     stc
 
 .done:
@@ -19895,6 +19924,11 @@ process_clone_present_user_range:
     call pmm_alloc_page
     test eax, eax
     jnz .copy_page_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_PMM_PAGE
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    mov eax, [process_fork_copy_vaddr]
+    mov [process_fork_failure_vaddr], eax
     jmp .fail
 
 .copy_page_ready:
@@ -19931,6 +19965,11 @@ process_clone_present_user_range:
     mov ebx, [process_fork_child_page_dir]
     call vmm_write_process_pte
     jnc .child_pte_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_CHILD_PTE
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    mov eax, [process_fork_copy_vaddr]
+    mov [process_fork_failure_vaddr], eax
     mov eax, [process_fork_copy_phys]
     call pmm_free_page
     jmp .fail
@@ -19941,6 +19980,11 @@ process_clone_present_user_range:
 
 .copy_alias_fail:
     popfd
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_ALIAS_MAP
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    mov eax, [process_fork_copy_vaddr]
+    mov [process_fork_failure_vaddr], eax
     mov eax, [process_fork_copy_phys]
     call pmm_free_page
     jmp .fail
@@ -19957,6 +20001,15 @@ process_clone_present_user_range:
     jmp .done
 
 .fail:
+    cmp dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NONE
+    jne .fail_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_VM_COPY
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    mov eax, [process_fork_copy_vaddr]
+    mov [process_fork_failure_vaddr], eax
+
+.fail_ready:
     stc
 
 .done:
@@ -20051,6 +20104,12 @@ process_fork_current:
 
     mov dword [process_fork_child_proc], 0
     mov dword [process_fork_child_pid], 0xffffffff
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NONE
+    mov dword [process_fork_last_errno], 0
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_start], eax
+    mov dword [process_fork_pmm_free_at_failure], 0
+    mov dword [process_fork_failure_vaddr], 0
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .enosys
@@ -20077,7 +20136,13 @@ process_fork_current:
     mov edi, [process_fork_child_proc]
     mov edx, [edi + PROC_PID]
     call fd_fork_clone_owned_by_pid
-    jc .rollback_enomem
+    jnc .fd_clone_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_FD_CLONE
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    jmp .rollback_enomem
+
+.fd_clone_ready:
     call process_fork_seed_child_context
     mov esi, [process_fork_parent_proc]
     mov eax, [esi + PROC_PID]
@@ -20096,12 +20161,15 @@ process_fork_current:
 .enomem:
     inc dword [process_fork_failures]
     mov eax, -ERRNO_ENOMEM
+    mov [process_fork_last_errno], eax
     stc
     jmp .done
 
 .enosys:
     inc dword [process_fork_failures]
     mov eax, -ERRNO_ENOSYS
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_UNSUPPORTED
+    mov [process_fork_last_errno], eax
     stc
 
 .done:
@@ -20122,6 +20190,12 @@ process_clone_shared_vm_current:
     mov dword [process_fork_child_proc], 0
     mov dword [process_fork_child_pid], 0xffffffff
     mov dword [process_fork_pages_copied_last], 0
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_NONE
+    mov dword [process_fork_last_errno], 0
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_start], eax
+    mov dword [process_fork_pmm_free_at_failure], 0
+    mov dword [process_fork_failure_vaddr], 0
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .enosys
@@ -20149,7 +20223,13 @@ process_clone_shared_vm_current:
     mov eax, [esi + PROC_PID]
     mov edx, [edi + PROC_PID]
     call fd_fork_clone_owned_by_pid
-    jc .rollback_enomem
+    jnc .fd_clone_ready
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_FD_CLONE
+    mov eax, [pmm_free_pages]
+    mov [process_fork_pmm_free_at_failure], eax
+    jmp .rollback_enomem
+
+.fd_clone_ready:
     call process_fork_seed_child_context
     mov esi, [process_fork_parent_proc]
     mov eax, [esi + PROC_PID]
@@ -20168,12 +20248,15 @@ process_clone_shared_vm_current:
 .enomem:
     inc dword [process_fork_failures]
     mov eax, -ERRNO_ENOMEM
+    mov [process_fork_last_errno], eax
     stc
     jmp .done
 
 .enosys:
     inc dword [process_fork_failures]
     mov eax, -ERRNO_ENOSYS
+    mov dword [process_fork_last_failure_stage], PROCESS_FORK_FAIL_UNSUPPORTED
+    mov [process_fork_last_errno], eax
     stc
 
 .done:
@@ -39478,6 +39561,23 @@ write_smoke_status:
     mov edx, [process_exit_zombies]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_forkmem_text
+    call smoke_copy_string
+    mov edx, [process_fork_last_failure_stage]
+    call smoke_write_hex32
+    mov edx, [process_fork_last_errno]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_pmm_free_at_start]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_pmm_free_at_failure]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_failure_vaddr]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_pages_copied_last]
+    call smoke_write_slash_hex32
+    mov edx, [process_generic_slot_failures]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_vmreap_text
     call smoke_copy_string
     mov edx, [process_vm_teardowns]
@@ -45404,6 +45504,7 @@ smoke_fddup_text db " fdup=", 0
 smoke_pwait_text db " wait=", 0
 smoke_waitseed_text db " waitseed=", 0
 smoke_fork_text db " fork=", 0
+smoke_forkmem_text db " forkmem=", 0
 smoke_vmreap_text db " vmreap=", 0
 smoke_primary_payload_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
@@ -48015,6 +48116,11 @@ process_fork_copy_end dd 0
 process_fork_copy_flags dd 0
 process_fork_parent_phys dd 0
 process_fork_copy_phys dd 0
+process_fork_last_failure_stage dd PROCESS_FORK_FAIL_NONE
+process_fork_last_errno dd 0
+process_fork_pmm_free_at_start dd 0
+process_fork_pmm_free_at_failure dd 0
+process_fork_failure_vaddr dd 0
 process_exit_frame_ptr dd 0
 process_exit_parent_pid dd 0xffffffff
 process_exit_resumed_pid dd 0xffffffff
