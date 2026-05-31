@@ -149,6 +149,7 @@
 .equ PI4_START_STORAGE_FILE_OK,         0x464f4f4b
 .equ PI4_START_STORAGE_VFS_OK,          PI4_START_STORAGE_FILE_OK
 .equ PI4_START_STORAGE_FAT16,           0x46413136
+.equ PI4_START_STORAGE_FAT32,           0x46413332
 .equ PI4_START_STORAGE_ENOSYS,          0x454e4f53
 .equ PI4_START_STORAGE_EINVAL,          0x45494e56
 .equ PI4_START_STORAGE_EIO,             0x45494f20
@@ -2712,7 +2713,13 @@ pi4_prepare_net_status_file_metadata:
     ldr x21, [x0]
     adr x0, pi4_storage_status_bpb_root_dir_sectors
     ldr x22, [x0]
-    cbnz x22, .Lpi4_prepare_net_status_have_root_request
+    cbnz x22, .Lpi4_prepare_net_status_read_root_request
+
+    adr x0, pi4_storage_status_fat_type
+    ldr w0, [x0]
+    ldr w1, =PI4_START_STORAGE_FAT32
+    cmp w0, w1
+    b.ne .Lpi4_prepare_net_status_file_metadata_done
 
     adr x0, pi4_storage_status_bpb_root_cluster
     ldr x23, [x0]
@@ -2721,16 +2728,22 @@ pi4_prepare_net_status_file_metadata:
     adr x0, pi4_storage_status_bpb_sectors_per_cluster
     ldr x22, [x0]
     cbz x22, .Lpi4_prepare_net_status_file_metadata_done
+    mov x0, #PI4_START_STORAGE_MAX_READ_SECTORS
+    cmp x22, x0
+    b.hi .Lpi4_prepare_net_status_file_metadata_done
+    mov x25, xzr
+
+.Lpi4_prepare_net_status_fat32_root_loop:
     adr x0, pi4_storage_status_bpb_data_lba
     ldr x21, [x0]
-    sub x23, x23, #2
-    madd x21, x23, x22, x21
+    sub x0, x23, #2
+    madd x21, x0, x22, x21
 
-.Lpi4_prepare_net_status_have_root_request:
+.Lpi4_prepare_net_status_read_root_request:
     cbz x22, .Lpi4_prepare_net_status_file_metadata_done
-    mov x23, #PI4_START_STORAGE_MAX_READ_SECTORS
-    cmp x22, x23
-    csel x22, x22, x23, lo
+    mov x0, #PI4_START_STORAGE_MAX_READ_SECTORS
+    cmp x22, x0
+    csel x22, x22, x0, lo
     mov x24, #PI4_START_STORAGE_SECTOR_BYTES
     mul x24, x22, x24
 
@@ -2747,6 +2760,27 @@ pi4_prepare_net_status_file_metadata:
     mov x3, x24
     ldr x16, =pi4_storage_parse_fat_root
     blr x16
+    adr x0, pi4_storage_status_fat_type
+    ldr w0, [x0]
+    ldr w1, =PI4_START_STORAGE_FAT32
+    cmp w0, w1
+    b.ne .Lpi4_prepare_net_status_file_metadata_done
+    adr x0, pi4_storage_status_net_status_file
+    ldr w0, [x0]
+    ldr w1, =PI4_START_STORAGE_FILE_OK
+    cmp w0, w1
+    b.eq .Lpi4_prepare_net_status_file_metadata_done
+
+    add x25, x25, #1
+    adr x0, pi4_storage_status_bpb_cluster_count
+    ldr x0, [x0]
+    cmp x25, x0
+    b.hs .Lpi4_prepare_net_status_file_metadata_done
+    mov x0, x23
+    bl pi4_read_fat32_next_cluster
+    cbnz x0, .Lpi4_prepare_net_status_file_metadata_done
+    mov x23, x1
+    b .Lpi4_prepare_net_status_fat32_root_loop
 
 .Lpi4_prepare_net_status_file_metadata_done:
     ldr x25, [sp, #64]
@@ -3244,6 +3278,77 @@ pi4_read_fat16_next_cluster:
     ldp x29, x30, [sp], #80
     ret
 .size pi4_read_fat16_next_cluster, . - pi4_read_fat16_next_cluster
+
+.type pi4_read_fat32_next_cluster, %function
+pi4_read_fat32_next_cluster:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+
+    mov x19, x0
+    adr x0, pi4_storage_status_bpb_cluster_count
+    ldr x24, [x0]
+    cbz x24, .Lpi4_read_fat32_next_cluster_fail
+    cmp x19, #2
+    b.lo .Lpi4_read_fat32_next_cluster_fail
+    sub x0, x19, #2
+    cmp x0, x24
+    b.hs .Lpi4_read_fat32_next_cluster_fail
+
+    lsl x20, x19, #2
+    lsr x21, x20, #9
+    and x22, x20, #0x1ff
+    adr x0, pi4_storage_status_bpb_fat0_lba
+    ldr x0, [x0]
+    cbz x0, .Lpi4_read_fat32_next_cluster_fail
+    add x0, x0, x21
+    mov x1, #1
+    ldr x2, =pi4_start_storage_user_file_buffer
+    ldr x16, =pi4_storage_read_blocks
+    blr x16
+    cbnz x0, .Lpi4_read_fat32_next_cluster_return
+
+    adr x0, pi4_storage_status_block_copied_sectors
+    ldr x0, [x0]
+    cmp x0, #1
+    b.lo .Lpi4_read_fat32_next_cluster_fail
+
+    ldr x0, =pi4_start_storage_user_file_buffer
+    add x0, x0, x22
+    ldr w23, [x0]
+    ldr x0, =0x0fffffff
+    and x23, x23, x0
+    ldr x0, =0x0ffffff7
+    cmp x23, x0
+    b.eq .Lpi4_read_fat32_next_cluster_fail
+    ldr x0, =0x0ffffff8
+    cmp x23, x0
+    b.hs .Lpi4_read_fat32_next_cluster_fail
+    cmp x23, #2
+    b.lo .Lpi4_read_fat32_next_cluster_fail
+    sub x0, x23, #2
+    cmp x0, x24
+    b.hs .Lpi4_read_fat32_next_cluster_fail
+
+    mov x0, xzr
+    mov x1, x23
+    b .Lpi4_read_fat32_next_cluster_done
+
+.Lpi4_read_fat32_next_cluster_fail:
+    mov x0, #PI4_VIBE_ENOSYS
+    neg x0, x0
+.Lpi4_read_fat32_next_cluster_return:
+    mov x1, xzr
+
+.Lpi4_read_fat32_next_cluster_done:
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_read_fat32_next_cluster, . - pi4_read_fat32_next_cluster
 
 .type pi4_resolve_file_sector_lba, %function
 pi4_resolve_file_sector_lba:
