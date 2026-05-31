@@ -16,7 +16,6 @@
 .equ PI4_MAILBOX_BASE,                  PI4_PERIPHERAL_BASE + 0x0000b880
 .equ PI4_PWM0_LEGACY_BASE,              0x7e20c000
 .equ PI4_PWM0_SPAN,                     0x28
-.equ PI4_NET_STATUS_RAW_LBA,            33700
 .equ PI4_NET_PHASE_STORAGE_PROBE_BEGIN, 0x1100
 .equ PI4_NET_PHASE_STORAGE_PROBED,      0x1101
 .equ PI4_NET_PHASE_STORAGE_WRITE_SEEN,  0x1102
@@ -2660,29 +2659,64 @@ pi4_record_net_status_write_result:
 
 .type pi4_write_net_status_sector_once, %function
 pi4_write_net_status_sector_once:
-    stp x29, x30, [sp, #-16]!
+    stp x29, x30, [sp, #-32]!
     mov x29, sp
+    str x19, [sp, #16]
     ldr x16, =pi4_net_prepare_status_sector
     blr x16
-    mov x1, x0
-    ldr x0, =PI4_NET_STATUS_RAW_LBA
+    mov x19, x0
+    bl pi4_load_net_status_file_lba
+    cbnz x0, .Lpi4_write_net_status_sector_once_done
+    mov x0, x1
+    mov x1, x19
     ldr x16, =pi4_storage_write_block
     blr x16
-    ldp x29, x30, [sp], #16
+.Lpi4_write_net_status_sector_once_done:
+    ldr x19, [sp, #16]
+    ldp x29, x30, [sp], #32
     ret
 .size pi4_write_net_status_sector_once, . - pi4_write_net_status_sector_once
 
 .type pi4_write_net_static_status_sector, %function
 pi4_write_net_static_status_sector:
-    stp x29, x30, [sp, #-16]!
+    stp x29, x30, [sp, #-32]!
     mov x29, sp
-    mov x1, x0
-    ldr x0, =PI4_NET_STATUS_RAW_LBA
+    str x19, [sp, #16]
+    mov x19, x0
+    bl pi4_load_net_status_file_lba
+    cbnz x0, .Lpi4_write_net_static_status_sector_done
+    mov x0, x1
+    mov x1, x19
     ldr x16, =pi4_storage_write_block
     blr x16
-    ldp x29, x30, [sp], #16
+.Lpi4_write_net_static_status_sector_done:
+    ldr x19, [sp, #16]
+    ldp x29, x30, [sp], #32
     ret
 .size pi4_write_net_static_status_sector, . - pi4_write_net_static_status_sector
+
+.type pi4_load_net_status_file_lba, %function
+pi4_load_net_status_file_lba:
+    adr x0, pi4_storage_status_net_status_file
+    ldr w1, [x0]
+    ldr w2, =PI4_START_STORAGE_FILE_OK
+    cmp w1, w2
+    b.ne .Lpi4_load_net_status_file_lba_bad
+    adr x0, pi4_storage_status_net_status_plan_lba
+    ldr x1, [x0]
+    cbz x1, .Lpi4_load_net_status_file_lba_bad
+    adr x0, pi4_storage_status_net_status_plan_bytes
+    ldr x2, [x0]
+    cmp x2, #PI4_START_STORAGE_SECTOR_BYTES
+    b.lo .Lpi4_load_net_status_file_lba_bad
+    mov x0, xzr
+    ret
+.Lpi4_load_net_status_file_lba_bad:
+    mov x0, #PI4_VIBE_EINVAL
+    neg x0, x0
+    mov x1, xzr
+    ret
+.size pi4_load_net_status_file_lba, . - pi4_load_net_status_file_lba
 
 .type pi4_prepare_storage_handoff, %function
 pi4_prepare_storage_handoff:

@@ -84,6 +84,7 @@
 .equ PI4_STORAGE_APP_RECORD_ELF_ENTRY_OFF, 24
 .equ PI4_STORAGE_APP_RECORD_MANIFEST_OFF, 32
 .equ PI4_STORAGE_APP_RECORD_COUNT,      PI4_STORAGE_APP_RECORD_TABLE_BYTES / PI4_STORAGE_APP_RECORD_BYTES
+.equ PI4_STORAGE_ROOT_FOUND_NET_STATUS, 4096
 
 .macro PI4_STORAGE_LOAD_LE16 dst, base, off, tmp
     ldrb \dst, [\base, #\off]
@@ -1626,6 +1627,11 @@ pi4_storage_parse_fat_root:
     adr x1, pi4_storage_name_doom1_wad
     bl pi4_storage_match_short_name
     cbnz w0, .Lpi4_storage_root_record_doom1
+
+    mov x0, x25
+    adr x1, pi4_storage_name_vibestat_bin
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_root_record_net_status
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_check_directory:
@@ -1715,6 +1721,20 @@ pi4_storage_parse_fat_root:
     orr x1, x1, #1
     str x1, [x0]
     orr x27, x27, #64
+    b .Lpi4_storage_root_next_entry
+
+.Lpi4_storage_root_record_net_status:
+    mov x0, x25
+    mov x1, x26
+    adr x2, pi4_storage_status_net_status_file
+    mov x4, x28
+    mov x5, x19
+    mov x6, x20
+    adr x7, pi4_storage_status_bpb_cluster_count
+    ldr x7, [x7]
+    bl pi4_storage_record_file_read_metadata
+    cbz w0, .Lpi4_storage_root_next_entry
+    orr x27, x27, #PI4_STORAGE_ROOT_FOUND_NET_STATUS
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_record_proof_dir:
@@ -2369,6 +2389,8 @@ pi4_storage_name_abiprobe_elf:
     .ascii "ABIPROBEELF"
 pi4_storage_name_doom1_wad:
     .ascii "DOOM1   WAD"
+pi4_storage_name_vibestat_bin:
+    .ascii "VIBESTATBIN"
 pi4_storage_name_proof_dir:
     .ascii "PROOF      "
 pi4_storage_name_assets_dir:
@@ -2842,6 +2864,22 @@ pi4_storage_status_doom1_wad:
     .quad 0
     .quad 0
     .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_net_status_file
+pi4_storage_status_net_status_file:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_net_status_plan_lba
+pi4_storage_status_net_status_plan_lba:
+    .quad 0
+.global pi4_storage_status_net_status_plan_sectors
+pi4_storage_status_net_status_plan_sectors:
+    .quad 0
+.global pi4_storage_status_net_status_plan_bytes
+pi4_storage_status_net_status_plan_bytes:
     .quad 0
     .quad 0
 .global pi4_storage_status_proof_dir

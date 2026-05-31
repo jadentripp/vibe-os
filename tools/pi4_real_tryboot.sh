@@ -73,6 +73,7 @@ write_manifest() {
     printf "schema=vibe-os-pi4-real-tryboot-manifest-v1\n"
     printf "created_utc=%s\n" "$(date -u "+%Y-%m-%dT%H:%M:%SZ")"
     printf "normal_boot_preserved=%s/config.txt,%s/kernel8.img\n" "$PI4_REAL_BOOT_MOUNT" "$PI4_REAL_BOOT_MOUNT"
+    printf "net_status_file=%s\n" "$PI4_REAL_NET_STATUS_FILE"
     printf "tryboot_candidate=%s\n" "$PI4_REAL_TRYBOOT_CANDIDATE"
     printf "tryboot_active=%s\n" "$PI4_REAL_TRYBOOT_ACTIVE"
     for artifact in \
@@ -106,10 +107,11 @@ stage_tryboot() {
   require_artifacts
 
   local tmp="/tmp/vibe-os-pi4-stage-$$"
-  local qtmp qboot qvibe
+  local qtmp qboot qvibe qstatus
   qtmp="$(remote_quote "$tmp")"
   qboot="$(remote_quote "$PI4_REAL_BOOT_MOUNT")"
   qvibe="$(remote_quote "$PI4_REAL_VIBE_DIR")"
+  qstatus="$(remote_quote "$PI4_REAL_NET_STATUS_FILE")"
 
   ssh_pi "rm -rf $qtmp; mkdir -p $qtmp/vibe $qtmp/SYSTEM $qtmp/APPS/DOOM $qtmp/APPS/QUAKE"
   scp_to_pi "$PI4_KERNEL8_IMG" "$tmp/vibe/kernel8.img"
@@ -124,6 +126,8 @@ stage_tryboot() {
 
   ssh_pi "set -e; \
     sudo mkdir -p $qvibe $qboot/SYSTEM $qboot/APPS/DOOM $qboot/APPS/QUAKE; \
+    sudo dd if=/dev/zero of=$qstatus bs=512 count=1 >/dev/null 2>&1; \
+    sudo chmod 0644 $qstatus; \
     sudo install -m 0644 $qtmp/vibe/kernel8.img $qvibe/kernel8.img; \
     sudo install -m 0644 $qtmp/tryboot.vibe-os.txt $(remote_quote "$PI4_REAL_TRYBOOT_CANDIDATE"); \
     sudo install -m 0644 $qtmp/SYSTEM/INIT.ELF $qboot/SYSTEM/INIT.ELF; \
@@ -144,6 +148,8 @@ preflight_tryboot() {
     echo \"host=\$(hostname) kernel=\$(uname -r)\"; \
     test -f $(remote_quote "$PI4_REAL_BOOT_MOUNT/config.txt"); \
     test -f $(remote_quote "$PI4_REAL_BOOT_MOUNT/kernel8.img"); \
+    test -f $(remote_quote "$PI4_REAL_NET_STATUS_FILE"); \
+    test \"\$(stat -c %s $(remote_quote "$PI4_REAL_NET_STATUS_FILE"))\" = 512; \
     test -f $(remote_quote "$PI4_REAL_VIBE_DIR/kernel8.img"); \
     test -f $(remote_quote "$PI4_REAL_TRYBOOT_CANDIDATE"); \
     test ! -f $(remote_quote "$PI4_REAL_TRYBOOT_ACTIVE"); \
@@ -151,6 +157,7 @@ preflight_tryboot() {
       [ -e \"\$p\" ] && printf \"%s \" \"\$p\" && od -An -tx4 \"\$p\" || true; \
     done; \
     sha256sum \
+      $(remote_quote "$PI4_REAL_NET_STATUS_FILE") \
       $(remote_quote "$PI4_REAL_VIBE_DIR/kernel8.img") \
       $(remote_quote "$PI4_REAL_TRYBOOT_CANDIDATE") \
       $(remote_quote "$PI4_REAL_BOOT_MOUNT/SYSTEM/INIT.ELF") \
@@ -181,6 +188,7 @@ PI4_REAL_SSH="${PI4_REAL_SSH:-ssh}"
 PI4_REAL_SCP="${PI4_REAL_SCP:-scp}"
 PI4_REAL_BOOT_MOUNT="${PI4_REAL_BOOT_MOUNT:-/boot/firmware}"
 PI4_REAL_VIBE_DIR="${PI4_REAL_VIBE_DIR:-$PI4_REAL_BOOT_MOUNT/vibe}"
+PI4_REAL_NET_STATUS_FILE="${PI4_REAL_NET_STATUS_FILE:-$PI4_REAL_BOOT_MOUNT/VIBESTAT.BIN}"
 PI4_REAL_TRYBOOT_CANDIDATE="${PI4_REAL_TRYBOOT_CANDIDATE:-$PI4_REAL_BOOT_MOUNT/tryboot.vibe-os.txt}"
 PI4_REAL_TRYBOOT_ACTIVE="${PI4_REAL_TRYBOOT_ACTIVE:-$PI4_REAL_BOOT_MOUNT/tryboot.txt}"
 PI4_REAL_ALLOW_REBOOT="${PI4_REAL_ALLOW_REBOOT:-0}"
