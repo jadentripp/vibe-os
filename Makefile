@@ -140,7 +140,7 @@ PI4_REAL_NET_STATUS_FILE ?= $(PI4_REAL_BOOT_MOUNT)/VIBESTAT.BIN
 PI4_REAL_TRYBOOT_CANDIDATE ?= $(PI4_REAL_BOOT_MOUNT)/tryboot.vibe-os.txt
 PI4_REAL_TRYBOOT_ACTIVE ?= $(PI4_REAL_BOOT_MOUNT)/tryboot.txt
 PI4_REAL_ALLOW_REBOOT ?= 0
-PI4_BOOT_ASM_SRCS := boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S boot/pi4/net.S
+PI4_BOOT_ASM_SRCS := boot/pi4/kernel_prelude.S boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S boot/pi4/net.S
 PI4_USER_ASM_SRCS := user/pi4_crt0.S user/pi4_runtime.S user/pi4_abi_probe.S user/pi4_launcher.S user/pi4_launcher_assets.S user/pi4_launcher_art.S
 PI4_DOOM_ASM_SRCS := doom_port/pi4_start.S
 PI4_QUAKE_ASM_SRCS := quake_port/pi4_app.S
@@ -296,65 +296,7 @@ project-c-inventory:
 	printf "Project C/header inventory OK: %s files, %s lines remain outside third_party.\n" "$$count" "$$lines"
 
 assembly-native-check:
-	@set -e; \
-	recipes="$$( $(MAKE) --no-print-directory -B -n ALLOW_LOCAL_VM=0 DOOM_WAD= build-only )"; \
-	for path in \
-		kernel/c_runtime_probe.asm \
-		user/probe.asm \
-		user/launcher_crt0.asm \
-		user/launcher_main.asm \
-		user/runtime.asm \
-		user/abi_probe.asm \
-		user/launcher.asm \
-		user/libc.asm \
-		doom_port/input.asm \
-		doom_port/music.asm \
-		doom_port/platform.asm \
-		doom_port/save_debug.asm \
-		doom_port/start.asm \
-		quake_port/cd.asm \
-		quake_port/input.asm \
-		quake_port/math.asm \
-		quake_port/setjmp.asm \
-		quake_port/snd.asm \
-		quake_port/start.asm \
-		quake_port/sys.asm \
-		quake_port/vid.asm; do \
-		printf "%s\n" "$$recipes" | grep -Eq "nasm -f elf32([[:space:]][^[:space:]]+)*[[:space:]]+$$path[[:space:]]+-o[[:space:]]" || { \
-			printf "Guest assembly build audit missing NASM recipe for %s\n" "$$path" >&2; \
-			exit 1; \
-		}; \
-	done; \
-	bad_guest_c="$$(printf "%s\n" "$$recipes" | grep -E ' -c (kernel|user|doom_port|quake_port)/.*\.c|clang .* (kernel|user|doom_port|quake_port)/.*\.c' || true)"; \
-	if [ -n "$$bad_guest_c" ]; then \
-		printf "Project-owned C is still compiled into guest artifacts:\n%s\n" "$$bad_guest_c" >&2; \
-		exit 1; \
-	fi; \
-	for path in \
-		kernel/c_runtime_probe.c \
-		user/probe.c \
-		user/abi_probe.c \
-		user/runtime.c \
-		user/libc.c \
-		doom_port/input.c \
-		doom_port/music.c \
-		doom_port/platform.c \
-		doom_port/save_debug.c \
-		doom_port/start.c \
-		quake_port/cd.c \
-		quake_port/input.c \
-		quake_port/math.c \
-		quake_port/setjmp.c \
-		quake_port/snd.c \
-		quake_port/start.c \
-		quake_port/sys.c \
-		quake_port/vid.c; do \
-		if [ -e "$$path" ]; then \
-			printf "Legacy project-owned guest C source still exists: %s\n" "$$path" >&2; \
-			exit 1; \
-		fi; \
-	done; \
-	printf "Assembly-native guest build audit OK: project-owned guest artifacts are NASM-owned.\n"
+	@MAKE="$(MAKE)" tools/check_assembly_native.sh
 
 doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
@@ -518,40 +460,8 @@ $(PI4_KERNEL_STORAGE_OBJ): boot/pi4/storage.S Makefile | $(PI4_BUILD_DIR)
 $(PI4_KERNEL_NET_OBJ): boot/pi4/net.S Makefile | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $< -o $@
 
-$(PI4_KERNEL_AGGREGATE_SRC): boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S boot/pi4/net.S Makefile | $(PI4_BUILD_DIR)
-	@{ \
-		printf '.equ PI4_VIBE_DISPLAY_FD, 1\n'; \
-		printf '.equ PI4_VIBE_EINVAL, 22\n'; \
-		printf '.equ PI4_VIBE_INPUT_DEVICE_KEYBOARD, 1\n'; \
-		printf '.equ PI4_VIBE_INPUT_DEVICE_MOUSE, 2\n'; \
-		printf '.equ PI4_VIBE_INPUT_CAP_POLL_EVENT, 0x00000004\n'; \
-		printf '.equ PI4_VIBE_INPUT_CAP_STATUS, 0x00000008\n'; \
-		printf '.equ PI4_VIBE_INPUT_CAP_DEVICE_STATUS, 0x00000010\n'; \
-		printf '.equ PI4_VIBE_FB_BACKEND_XRGB8888_LFB, 2\n'; \
-		printf '.equ PI4_VIBE_FB_CAP_PRESENT_INDEXED, 0x00000001\n'; \
-		printf '.equ PI4_VIBE_FB_CAP_PRESENT_RGB_PALETTE, 0x00000002\n'; \
-		printf '.equ PI4_VIBE_FB_CAP_XRGB8888_LFB, 0x00000004\n'; \
-		printf '.equ PI4_VIBE_FB_CAP_DIRTY_SOURCE_RECT, 0x00000010\n'; \
-		printf '.equ PI4_VIBE_FB_CAP_PRESENT_FULLSCREEN_SCALE, 0x00000020\n'; \
-		printf '.equ PI4_VIBE_FB_FORMAT_INDEX8_RGB24, 1\n'; \
-		printf '.equ PI4_VIBE_FB_RGB24_PALETTE_BYTES, 768\n'; \
-		printf '.equ PI4_VIBE_USER_ABI_VERSION, 1\n'; \
-		printf '.equ PI4_VIBE_INPUT_EVENT_BYTES, 56\n'; \
-		printf '.equ PI4_VIBE_INPUT_STATUS_BYTES, 264\n'; \
-		printf '.equ PI4_VIBE_INPUT_DEVICE_STATUS_BYTES, 128\n'; \
-		printf '.equ PI4_VIBE_FB_INFO_BYTES, 168\n'; \
-		printf '.global msg_status_pi4exec_tuple\n'; \
-		printf '.global pi4_status_pi4exec_sysno\n'; \
-		printf '.global pi4_status_pi4exec_path\n'; \
-		printf '.global pi4_status_pi4exec_argv\n'; \
-		printf '.global pi4_status_pi4exec_envp\n'; \
-		printf '.global pi4_status_pi4exec_result\n'; \
-		printf '.global pi4_status_pi4exec_count\n'; \
-		printf '#include "%s"\n' "$(abspath boot/pi4/start.S)"; \
-		printf '#include "%s"\n' "$(abspath boot/pi4/input.S)"; \
-		printf '#include "%s"\n' "$(abspath boot/pi4/storage.S)"; \
-		printf '#include "%s"\n' "$(abspath boot/pi4/net.S)"; \
-	} > $@
+$(PI4_KERNEL_AGGREGATE_SRC): $(PI4_BOOT_ASM_SRCS) Makefile | $(PI4_BUILD_DIR)
+	@{ for src in $(PI4_BOOT_ASM_SRCS); do printf '#include "%s"\n' "$(abspath .)/$$src"; done; } > $@
 
 $(PI4_KERNEL_OBJ): $(PI4_KERNEL_AGGREGATE_SRC) Makefile | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $(PI4_KERNEL_AGGREGATE_SRC) -o $@
