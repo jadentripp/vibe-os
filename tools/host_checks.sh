@@ -3,7 +3,7 @@ set -euo pipefail
 
 mode="${1:-}"
 if [ -z "$mode" ]; then
-  echo "usage: tools/host_checks.sh {no-python|project-c-inventory|pi4-assembly-source-gate|quake-status-proof|persistence-image-check}" >&2
+  echo "usage: tools/host_checks.sh {no-python|project-c-inventory|pi4-assembly-source-gate|pi4-image-inspect|quake-status-proof|persistence-image-check}" >&2
   exit 2
 fi
 
@@ -11,6 +11,8 @@ BUILD_DIR="${BUILD_DIR:-build}"
 PROJECT_C_ALLOWLIST="${PROJECT_C_ALLOWLIST:-tools/project_c_allowlist.txt}"
 IMAGE="${IMAGE:-$BUILD_DIR/disk.img}"
 IMAGE_BUILDER="${IMAGE_BUILDER:-$BUILD_DIR/make_wad_image}"
+PI4_IMAGE="${PI4_IMAGE:-$BUILD_DIR/pi4/pi4-fat16.img}"
+PI4_IMAGE_INSPECT_TXT="${PI4_IMAGE_INSPECT_TXT:-$BUILD_DIR/pi4/pi4-image-inspect.txt}"
 PI4_ASM_SRCS="${PI4_ASM_SRCS:-}"
 PERSISTENCE_BASELINE_IMAGE="${PERSISTENCE_BASELINE_IMAGE:-}"
 PERSISTENCE_REBOOT_BASELINE_IMAGE="${PERSISTENCE_REBOOT_BASELINE_IMAGE:-}"
@@ -75,6 +77,20 @@ pi4_assembly_source_gate() {
   printf "Pi 4 assembly source gate OK: boot, user, launcher, Doom, and Quake sources are wired.\n"
 }
 
+pi4_image_inspect() {
+  mkdir -p "$(dirname "$PI4_IMAGE_INSPECT_TXT")"
+  "$IMAGE_BUILDER" --inspect "$PI4_IMAGE" > "$PI4_IMAGE_INSPECT_TXT"
+  cat "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "manifest_file=KERNEL8.IMG state=present" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "manifest_file=CONFIG.TXT state=present" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "manifest_file=VIBESTAT.BIN state=present" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "manifest_file=/SYSTEM/INIT.ELF state=present" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "manifest_file=/APPS/INDEX.TXT state=present" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "app_exec=/APPS/DOOM/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=doom" "$PI4_IMAGE_INSPECT_TXT"
+  grep -F -q "app_exec=/APPS/QUAKE/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=quake" "$PI4_IMAGE_INSPECT_TXT"
+  ! grep -a -E -q "PAYLOAD[0-9]+\\.ELF" "$PI4_IMAGE"
+}
+
 quake_status_proof() {
   local status_txt
 
@@ -129,6 +145,9 @@ case "$mode" in
     ;;
   pi4-assembly-source-gate)
     pi4_assembly_source_gate
+    ;;
+  pi4-image-inspect)
+    pi4_image_inspect
     ;;
   quake-status-proof)
     quake_status_proof
