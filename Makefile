@@ -44,6 +44,7 @@ SMOKE_EXPECT_GUEST_EXIT ?= 0
 SMOKE_GUEST_EXIT_KEYS ?=
 SMOKE_NO_REBOOT ?= 1
 SMOKE_NO_SHUTDOWN ?= 1
+HOST_CHECK_TOOL := tools/host_checks.sh
 SMOKE_TOOL := tools/local_smoke.sh
 PERSISTENCE_BASELINE_IMAGE ?=
 PERSISTENCE_REBOOT_BASELINE_IMAGE ?=
@@ -185,6 +186,11 @@ export SMOKE_REQUIRE_REAL_WAD_PROOF SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF SMOKE_
 export SMOKE_SKIP_ASSERTIONS SMOKE_NC_TIMEOUT SMOKE_QEMU_TIMEOUT SMOKE_EARLY_SECONDS
 export SMOKE_SETTLE_SECONDS SMOKE_SHUTDOWN_TIMEOUT SMOKE_CAPTURE_GFX SMOKE_EXPECT_GUEST_EXIT
 export SMOKE_GUEST_EXIT_KEYS SMOKE_NO_REBOOT SMOKE_NO_SHUTDOWN
+export PROJECT_C_ALLOWLIST PI4_ASM_SRCS IMAGE_BUILDER
+export PERSISTENCE_BASELINE_IMAGE PERSISTENCE_REBOOT_BASELINE_IMAGE PERSISTENCE_REBOOT_STATUS
+export PERSISTENCE_WRITE_STATUS PERSISTENCE_SAVE_WRITE_STATUS PERSISTENCE_LOAD_STATUS
+export PERSISTENCE_REQUIRE_DEFAULT PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF
+export PERSISTENCE_REQUIRE_SAVE_SLOT PERSISTENCE_REQUIRE_SAVE_DESCRIPTION
 PROJECT_C_ALLOWLIST := tools/project_c_allowlist.txt
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -278,37 +284,11 @@ build-only: $(IMAGE) doom-link quake-link
 test: no-python-check project-c-inventory $(IMAGE) doom-link quake-link vm-status-proof-check assembly-native-check
 	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, project C inventory, and assembly-native guest build audit passed.\n"
 
-no-python-check:
-	@set -e; \
-	files="$$(git ls-files '*.py' ':(exclude)third_party/**' ':(exclude)build/**' ':(exclude)out/**')"; \
-	if [ -n "$$files" ]; then \
-		printf "Tracked Python is not allowed in the vibe-os build/proof path:\n%s\n" "$$files" >&2; \
-		exit 1; \
-	fi; \
-	printf "No tracked Python in the vibe-os build/proof path.\n"
+no-python-check: $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) no-python
 
-project-c-inventory:
-	@set -e; \
-	mkdir -p "$(BUILD_DIR)"; \
-	actual="$(BUILD_DIR)/project-c-actual.txt"; \
-	allow="$(BUILD_DIR)/project-c-allowlist.txt"; \
-	find . -type f \( -name '*.c' -o -name '*.h' \) \
-		-not -path './.git/*' \
-		-not -path './build/*' \
-		-not -path './third_party/*' \
-		-print | sed 's#^\./##' | sort > "$$actual"; \
-	sed '/^[[:space:]]*$$/d' "$(PROJECT_C_ALLOWLIST)" | sort > "$$allow"; \
-	if ! diff -u "$$allow" "$$actual"; then \
-		echo "project C/header inventory drifted; update $(PROJECT_C_ALLOWLIST) intentionally" >&2; \
-		exit 1; \
-	fi; \
-	count="$$(wc -l < "$$actual" | tr -d ' ')"; \
-	if [ -s "$$actual" ]; then \
-		lines="$$(xargs wc -l < "$$actual" | awk 'END { print $$1 }')"; \
-	else \
-		lines=0; \
-	fi; \
-	printf "Project C/header inventory OK: %s files, %s lines remain outside third_party.\n" "$$count" "$$lines"
+project-c-inventory: $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) project-c-inventory
 
 assembly-native-check:
 	@MAKE="$(MAKE)" tools/check_assembly_native.sh
@@ -448,20 +428,8 @@ $(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) 
 
 uefi-dual-image: $(UEFI_DUAL_IMAGE)
 
-pi4-assembly-source-gate:
-	@set -e; \
-	expected="$$(printf '%s\n' $(PI4_ASM_SRCS) | LC_ALL=C sort)"; \
-	actual="$$( { \
-		find boot/pi4 -type f \( -name '*.S' -o -name '*.s' \) -print 2>/dev/null; \
-		find user -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
-		find doom_port -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
-		find quake_port -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
-	} | LC_ALL=C sort )"; \
-	if [ "$$actual" != "$$expected" ]; then \
-		printf "Pi 4 assembly source wiring is stale.\nExpected:\n%s\nActual:\n%s\n" "$$expected" "$$actual" >&2; \
-		exit 1; \
-	fi; \
-	printf "Pi 4 assembly source gate OK: boot, user, launcher, Doom, and Quake sources are wired.\n"
+pi4-assembly-source-gate: $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) pi4-assembly-source-gate
 
 pi4-code-gates: no-python-check project-c-inventory pi4-assembly-source-gate $(PI4_KERNEL_OBJ) $(PI4_KERNEL_INPUT_OBJ) $(PI4_KERNEL_STORAGE_OBJ) $(PI4_KERNEL_NET_OBJ) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
 	@printf "Pi 4 code gates OK: built the assembly kernel object and linked /SYSTEM plus /APPS AArch64 ELFs.\n"
@@ -700,45 +668,14 @@ run-headless: vm-consent check-tools $(IMAGE)
 smoke: vm-consent check-tools $(IMAGE) $(SMOKE_TOOL)
 	@$(SMOKE_TOOL)
 
-quake-status-proof-check:
-	@set -e; \
-	test -s $(BUILD_DIR)/status.txt; \
-	grep -q "path=/APPS/QUAKE/APP.ELF" $(BUILD_DIR)/status.txt; \
-	grep -q "quake=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "quakerun=RUN" $(BUILD_DIR)/status.txt; \
-	grep -q "quakeopen=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "quakeread=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "qgame=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "panic=NONE" $(BUILD_DIR)/status.txt; \
-	grep -q "shutdown=NONE" $(BUILD_DIR)/status.txt; \
-	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "audio=SB16" $(BUILD_DIR)/status.txt; \
-	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /preempt=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /quakepak=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$4) == 0x4B434150; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /quakepresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	perl -ne '$$ok = 1 if /qaudio=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	printf "Quake proof status OK: /APPS/QUAKE/APP.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
+quake-status-proof-check: $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) quake-status-proof
 
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" HOST_NO_PIE="$(HOST_NO_PIE)" tools/test_vibe_status_check.sh
 
-persistence-image-check: $(IMAGE_BUILDER)
-	@set -e; \
-	set -- --check-persistence "$(IMAGE)"; \
-	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then set -- "$$@" --baseline-image "$(PERSISTENCE_BASELINE_IMAGE)"; fi; \
-	if [ -n "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)" ]; then set -- "$$@" --reboot-baseline-image "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)"; fi; \
-	if [ -n "$(PERSISTENCE_REBOOT_STATUS)" ]; then set -- "$$@" --reboot-status "$(PERSISTENCE_REBOOT_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_WRITE_STATUS)" ]; then set -- "$$@" --write-status "$(PERSISTENCE_WRITE_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then set -- "$$@" --save-write-status "$(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_LOAD_STATUS)" ]; then set -- "$$@" --load-status "$(PERSISTENCE_LOAD_STATUS)"; fi; \
-	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then set -- "$$@" --require-default; fi; \
-	if [ "$(PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF)" = "1" ]; then set -- "$$@" --require-dynamic-fat-proof; fi; \
-	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do set -- "$$@" --require-save-slot "$$slot"; done; \
-	if [ -n "$(PERSISTENCE_REQUIRE_SAVE_DESCRIPTION)" ]; then set -- "$$@" --require-save-description "$(PERSISTENCE_REQUIRE_SAVE_DESCRIPTION)"; fi; \
-	$(IMAGE_BUILDER) "$$@"
+persistence-image-check: $(IMAGE_BUILDER) $(HOST_CHECK_TOOL)
+	@$(HOST_CHECK_TOOL) persistence-image-check
 
 clean:
 	rm -rf $(BUILD_DIR)
