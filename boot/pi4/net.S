@@ -1383,9 +1383,11 @@ pi4_net_handle_tcp_frame:
     b.eq .Lpi4_net_tcp_done
     mov x0, x19
     bl pi4_net_record_ssh_client_payload
-    adr x0, pi4_net_status_tcp_banners
+    adr x0, pi4_net_status_tcp_last_ack
     ldr x1, [x0]
-    cbnz x1, .Lpi4_net_tcp_ack_client_payload
+    ldr x2, =(PI4_NET_TCP_SERVER_SEQ + 1)
+    cmp x1, x2
+    b.ne .Lpi4_net_tcp_ack_client_payload
     mov x0, x19
     bl pi4_net_send_tcp_banner
     mov x0, x19
