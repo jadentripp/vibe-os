@@ -14,28 +14,56 @@
 .equ PI4_NET_GENET_SPAN,                0x00010000
 .equ PI4_NET_GENET_PHY_ADDR,            1
 .equ PI4_NET_GENET_MTU_FRAME,           1536
-.equ PI4_NET_STATIC_IP0,                198
-.equ PI4_NET_STATIC_IP1,                51
-.equ PI4_NET_STATIC_IP2,                100
-.equ PI4_NET_STATIC_IP3,                231
-.equ PI4_NET_MAC0,                      0x02
-.equ PI4_NET_MAC1,                      0x00
-.equ PI4_NET_MAC2,                      0x00
-.equ PI4_NET_MAC3,                      0x00
-.equ PI4_NET_MAC4,                      0x00
-.equ PI4_NET_MAC5,                      0x01
-.equ PI4_NET_MAC0_BE32,                 0x02000000
-.equ PI4_NET_MAC1_BE16,                 0x0001
-.equ PI4_NET_HOST_IP0,                  198
-.equ PI4_NET_HOST_IP1,                  51
-.equ PI4_NET_HOST_IP2,                  100
-.equ PI4_NET_HOST_IP3,                  23
-.equ PI4_NET_HOST_MAC0,                 0x02
-.equ PI4_NET_HOST_MAC1,                 0x00
-.equ PI4_NET_HOST_MAC2,                 0x00
-.equ PI4_NET_HOST_MAC3,                 0x00
-.equ PI4_NET_HOST_MAC4,                 0x00
-.equ PI4_NET_HOST_MAC5,                 0x02
+#ifndef VIBE_PI4_NET_STATIC_IP0
+#define VIBE_PI4_NET_STATIC_IP0 198
+#define VIBE_PI4_NET_STATIC_IP1 51
+#define VIBE_PI4_NET_STATIC_IP2 100
+#define VIBE_PI4_NET_STATIC_IP3 231
+#endif
+#ifndef VIBE_PI4_NET_MAC0
+#define VIBE_PI4_NET_MAC0 0x02
+#define VIBE_PI4_NET_MAC1 0x00
+#define VIBE_PI4_NET_MAC2 0x00
+#define VIBE_PI4_NET_MAC3 0x00
+#define VIBE_PI4_NET_MAC4 0x00
+#define VIBE_PI4_NET_MAC5 0x01
+#endif
+#ifndef VIBE_PI4_NET_HOST_IP0
+#define VIBE_PI4_NET_HOST_IP0 198
+#define VIBE_PI4_NET_HOST_IP1 51
+#define VIBE_PI4_NET_HOST_IP2 100
+#define VIBE_PI4_NET_HOST_IP3 23
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC0
+#define VIBE_PI4_NET_HOST_MAC0 0x02
+#define VIBE_PI4_NET_HOST_MAC1 0x00
+#define VIBE_PI4_NET_HOST_MAC2 0x00
+#define VIBE_PI4_NET_HOST_MAC3 0x00
+#define VIBE_PI4_NET_HOST_MAC4 0x00
+#define VIBE_PI4_NET_HOST_MAC5 0x02
+#endif
+.equ PI4_NET_STATIC_IP0,                VIBE_PI4_NET_STATIC_IP0
+.equ PI4_NET_STATIC_IP1,                VIBE_PI4_NET_STATIC_IP1
+.equ PI4_NET_STATIC_IP2,                VIBE_PI4_NET_STATIC_IP2
+.equ PI4_NET_STATIC_IP3,                VIBE_PI4_NET_STATIC_IP3
+.equ PI4_NET_MAC0,                      VIBE_PI4_NET_MAC0
+.equ PI4_NET_MAC1,                      VIBE_PI4_NET_MAC1
+.equ PI4_NET_MAC2,                      VIBE_PI4_NET_MAC2
+.equ PI4_NET_MAC3,                      VIBE_PI4_NET_MAC3
+.equ PI4_NET_MAC4,                      VIBE_PI4_NET_MAC4
+.equ PI4_NET_MAC5,                      VIBE_PI4_NET_MAC5
+.equ PI4_NET_MAC0_BE32,                 (VIBE_PI4_NET_MAC0 << 24) | (VIBE_PI4_NET_MAC1 << 16) | (VIBE_PI4_NET_MAC2 << 8) | VIBE_PI4_NET_MAC3
+.equ PI4_NET_MAC1_BE16,                 (VIBE_PI4_NET_MAC4 << 8) | VIBE_PI4_NET_MAC5
+.equ PI4_NET_HOST_IP0,                  VIBE_PI4_NET_HOST_IP0
+.equ PI4_NET_HOST_IP1,                  VIBE_PI4_NET_HOST_IP1
+.equ PI4_NET_HOST_IP2,                  VIBE_PI4_NET_HOST_IP2
+.equ PI4_NET_HOST_IP3,                  VIBE_PI4_NET_HOST_IP3
+.equ PI4_NET_HOST_MAC0,                 VIBE_PI4_NET_HOST_MAC0
+.equ PI4_NET_HOST_MAC1,                 VIBE_PI4_NET_HOST_MAC1
+.equ PI4_NET_HOST_MAC2,                 VIBE_PI4_NET_HOST_MAC2
+.equ PI4_NET_HOST_MAC3,                 VIBE_PI4_NET_HOST_MAC3
+.equ PI4_NET_HOST_MAC4,                 VIBE_PI4_NET_HOST_MAC4
+.equ PI4_NET_HOST_MAC5,                 VIBE_PI4_NET_HOST_MAC5
 .equ PI4_NET_LINK_WAIT_SECONDS,         2
 .equ PI4_NET_POLL_SECONDS,              10
 .equ PI4_NET_RX_RING_SIZE,              64
@@ -1388,6 +1416,24 @@ pi4_net_handle_tcp_frame:
     ldr x2, =(PI4_NET_TCP_SERVER_SEQ + 1)
     cmp x1, x2
     b.ne .Lpi4_net_tcp_ack_client_payload
+    adr x0, pi4_net_status_tcp_src_port
+    ldr x3, [x0]
+    adr x0, pi4_net_status_tcp_last_seq
+    ldr x4, [x0]
+    ldr x0, =pi4_net_tcp_banner_src_port
+    ldr x5, [x0]
+    cmp x5, x3
+    b.ne .Lpi4_net_tcp_send_client_banner
+    ldr x0, =pi4_net_tcp_banner_seq
+    ldr x5, [x0]
+    cmp x5, x4
+    b.eq .Lpi4_net_tcp_ack_client_payload
+
+.Lpi4_net_tcp_send_client_banner:
+    ldr x0, =pi4_net_tcp_banner_src_port
+    str x3, [x0]
+    ldr x0, =pi4_net_tcp_banner_seq
+    str x4, [x0]
     mov x0, x19
     bl pi4_net_send_tcp_banner
     mov x0, x19
@@ -2651,3 +2697,8 @@ pi4_net_tx_buffers:
 .balign 64
 pi4_net_status_sector:
     .skip PI4_NET_STATUS_SECTOR_BYTES
+.balign 8
+pi4_net_tcp_banner_src_port:
+    .skip 8
+pi4_net_tcp_banner_seq:
+    .skip 8
