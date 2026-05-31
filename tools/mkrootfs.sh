@@ -11,7 +11,8 @@
 # Usage: tools/mkrootfs.sh [--dry-run]
 #   Rebuilds build/disk.img containing /BIN/HELLO.ELF, /BIN/AUXV.ELF,
 #   /BIN/TLS.ELF, /BIN/STARTUP.ELF, /BIN/XLIMIT.ELF, /BIN/DIR.ELF,
-#   /BIN/FD.ELF, /BIN/PIPE.ELF, and /BIN/FORK.ELF. If present,
+#   /BIN/FD.ELF, /BIN/DEVNULL.ELF, /BIN/PIPE.ELF, /BIN/FORK.ELF,
+#   /BIN/PROCEXE.ELF, and /BIN/TMPDIR.ELF. If present,
 #   tests/linux/linux_doom is installed as /BIN/LDOOM.ELF, and
 #   build/busybox-i386/busybox-vibe is installed as /BIN/BUSYBOX.ELF.
 #   If present, real-libc artifacts are also installed under /BIN and /LIB.
@@ -79,8 +80,8 @@ find_glibc_lib_pair() {
 }
 
 # 2. Collect --asset args for every built binary under /BIN.
-ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe"
-DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/dir_probe tests/linux/fd_probe tests/linux/pipe_probe tests/linux/fork_probe"
+ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/DEVNULL.ELF=tests/linux/dev_null_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe --asset /BIN/PROCEXE.ELF=tests/linux/proc_self_exe_probe --asset /BIN/TMPDIR.ELF=tests/linux/tmp_dir_probe"
+DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/dir_probe tests/linux/fd_probe tests/linux/dev_null_probe tests/linux/pipe_probe tests/linux/fork_probe tests/linux/proc_self_exe_probe tests/linux/tmp_dir_probe"
 
 if [ -f tests/linux/hello_musl ]; then
     ASSETS="$ASSETS --asset /BIN/MUSL.ELF=tests/linux/hello_musl"

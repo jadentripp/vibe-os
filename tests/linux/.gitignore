@@ -7,8 +7,11 @@ startup_probe
 exec_limits_probe
 dir_probe
 fd_probe
+dev_null_probe
 pipe_probe
 fork_probe
+proc_self_exe_probe
+tmp_dir_probe
 hello_musl
 hello_glibc
 libc_probe

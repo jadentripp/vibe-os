@@ -25,7 +25,7 @@ DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_D
 LDOOM_CFLAGS ?= -Os -std=gnu89 -fcommon -no-pie -march=i386 -mno-sse -mno-sse2 -Wno-implicit-function-declaration -Wno-int-conversion -DNORMALUNIX -DLINUX -I$(DOOM_SRC_DIR)
 LDOOM_LDFLAGS ?= -static -Wl,--image-base=$(LDOOM_BASE) -Wl,--strip-all
 
-BINARIES := hello_write auxv_dump tls_probe startup_probe exec_limits_probe dir_probe fd_probe pipe_probe fork_probe
+BINARIES := hello_write auxv_dump tls_probe startup_probe exec_limits_probe dir_probe fd_probe dev_null_probe pipe_probe fork_probe proc_self_exe_probe tmp_dir_probe
 
 .PHONY: all clean real-libc linux-doom
 all: $(BINARIES)

@@ -795,6 +795,7 @@ FD_KIND_READONLY_FILE equ 3
 FD_KIND_DIRECTORY equ 4
 FD_KIND_PIPE_READ equ 5
 FD_KIND_PIPE_WRITE equ 6
+FD_KIND_DEV_NULL equ 7
 FD_INHERIT_EXEC equ 0x1
 FD_CLOEXEC equ 0x1
 F_DUPFD equ 0
@@ -21826,6 +21827,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_fd
 
+    mov edi, exec_path_linux_dev_null
+    call kernel_streq
+    cmp al, 1
+    je .linux_dev_null
+
     mov edi, exec_path_linux_pipe
     call kernel_streq
     cmp al, 1
@@ -21835,6 +21841,16 @@ process_exec_resolve_app_path:
     call kernel_streq
     cmp al, 1
     je .linux_fork
+
+    mov edi, exec_path_linux_proc_self_exe
+    call kernel_streq
+    cmp al, 1
+    je .linux_proc_self_exe
+
+    mov edi, exec_path_linux_tmpdir
+    call kernel_streq
+    cmp al, 1
+    je .linux_tmpdir
 
     mov edi, exec_path_linux_ldoom
     call kernel_streq
@@ -21967,6 +21983,13 @@ process_exec_resolve_app_path:
     mov esi, linux_fd_elf_name_83
     jmp .linux_bin_app
 
+.linux_dev_null:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_dev_null_elf_name_83
+    jmp .linux_bin_app
+
 .linux_pipe:
     call process_alloc_generic_exec_slot
     jc .fail
@@ -21979,6 +22002,20 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_fork_elf_name_83
+    jmp .linux_bin_app
+
+.linux_proc_self_exe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_proc_self_exe_elf_name_83
+    jmp .linux_bin_app
+
+.linux_tmpdir:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_tmpdir_elf_name_83
     jmp .linux_bin_app
 
 .linux_ldoom:
@@ -24112,6 +24149,15 @@ linux_m1_smoke_launch:
 %endif
 %endif
 %endif
+%ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
+    mov esi, exec_path_linux_proc_self_exe
+%endif
+%ifdef LINUX_M1_TMPDIR_SMOKE
+    mov esi, exec_path_linux_tmpdir
+%endif
+%ifdef LINUX_M1_DEV_NULL_SMOKE
+    mov esi, exec_path_linux_dev_null
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -24201,6 +24247,15 @@ linux_m1_smoke_launch:
 %endif
 %endif
 %endif
+%endif
+%ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
+    mov esi, exec_path_linux_proc_self_exe
+%endif
+%ifdef LINUX_M1_TMPDIR_SMOKE
+    mov esi, exec_path_linux_tmpdir
+%endif
+%ifdef LINUX_M1_DEV_NULL_SMOKE
+    mov esi, exec_path_linux_dev_null
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -25719,6 +25774,26 @@ linux_path_is_synthetic_lib_dir:
     mov edi, linux_path_usr_lib_i386_slash
     call user_path_equals
     jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_tmp_end - linux_path_tmp
+    mov edi, linux_path_tmp
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_tmp_slash_end - linux_path_tmp_slash
+    mov edi, linux_path_tmp_slash
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_tmp_chromium_profile_end - linux_path_tmp_chromium_profile
+    mov edi, linux_path_tmp_chromium_profile
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_tmp_chromium_profile_slash_end - linux_path_tmp_chromium_profile_slash
+    mov edi, linux_path_tmp_chromium_profile_slash
+    call user_path_equals
+    jnc .ok
 
     stc
     jmp .done
@@ -25727,6 +25802,21 @@ linux_path_is_synthetic_lib_dir:
     clc
 
 .done:
+    pop edi
+    pop ebx
+    pop eax
+    ret
+
+linux_path_is_dev_null:
+    push eax
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_dev_null_end - linux_path_dev_null
+    mov edi, linux_path_dev_null
+    call user_path_equals
+
     pop edi
     pop ebx
     pop eax
@@ -26416,6 +26506,11 @@ linux_sys_readlink:
     je .einval
     cmp dword [process_exec_path_ptr], 0
     je .enoent
+    mov eax, ebx
+    mov ebx, linux_path_proc_self_exe_end - linux_path_proc_self_exe
+    mov edi, linux_path_proc_self_exe
+    call user_path_equals
+    jc .enoent
     mov [syscall_ptr_arg], ecx
     mov [syscall_len_arg], edx
     mov eax, ecx
@@ -27559,6 +27654,8 @@ linux_statx_fill_user:
 
 linux_stat_path_common:
     mov dword [stat_inode_arg], 1
+    call linux_path_is_dev_null
+    jnc .dev_null
     call linux_path_is_synthetic_lib_dir
     jnc .synthetic_dir
     call linux_find_library_alias
@@ -27608,6 +27705,12 @@ linux_stat_path_common:
 	xor eax, eax
 	mov edx, STAT_MODE_READONLY_DIR
 	jmp .found
+
+.dev_null:
+    mov dword [stat_inode_arg], 4
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
+    jmp .found
 
 .alias_file:
 	call linux_find_library_alias_entry
@@ -27668,6 +27771,8 @@ linux_fstat64_common:
 .lookup_file:
     call fd_lookup
     jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    je .dev_null
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
@@ -27688,6 +27793,12 @@ linux_fstat64_common:
     mov [stat_inode_arg], edx
     mov eax, [fd_file_sizes + eax * 4]
     mov edx, STAT_MODE_READONLY_REG
+    jmp .fill
+
+.dev_null:
+    mov dword [stat_inode_arg], 4
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
 
 .fill:
     cmp dword [linux_stat_format], LINUX_STAT_FORMAT_STATX
@@ -28356,8 +28467,35 @@ syscall_handler:
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
     je .write_pipe
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    je .write_dev_null
     call user_file_write
     jc .bad_syscall_from_eax
+    jmp .return
+
+.write_dev_null:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .write_dev_null_mode_ok
+    cmp eax, O_RDWR
+    jne .bad_syscall_ebadf
+
+.write_dev_null_mode_ok:
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    cmp edx, 0
+    je .write_dev_null_done
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .bad_syscall_einval
+
+.write_dev_null_done:
+    mov eax, user_io_write_count
+    call user_io_increment_current
+    mov eax, [syscall_len_arg]
     jmp .return
 
 .write_pipe:
@@ -28598,6 +28736,8 @@ syscall_handler:
     je .open_synthetic_dir_skip
     cmp dword [ebx + PROC_PERSONALITY], PERSONALITY_LINUX
     jne .open_synthetic_dir_skip
+    call linux_path_is_dev_null
+    jnc .open_dev_null_pop_bind
     mov eax, [syscall_open_flags]
     test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
     jnz .open_synthetic_dir_skip
@@ -28641,6 +28781,23 @@ syscall_handler:
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
     jnz .bad_syscall_eisdir
     jmp .open_generic_bind_readonly
+
+.open_dev_null_pop_bind:
+    pop ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
 
 .open_writable:
     xor edx, edx
@@ -28869,8 +29026,19 @@ syscall_handler:
     je .read_readonly_file
     cmp byte [fd_kinds + eax], FD_KIND_PIPE_READ
     je .read_pipe
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    je .read_dev_null
     call user_file_read
     jc .bad_syscall_from_eax
+    jmp .return
+
+.read_dev_null:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .bad_syscall_ebadf
+    xor eax, eax
     jmp .return
 
 .read_pipe:
@@ -31692,6 +31860,16 @@ syscall_handler:
     mov ebx, ecx
     call linux_record_path_arg
     pop ebx
+    cmp ebx, LINUX_AT_FDCWD
+    je .linux_readlinkat_args
+    mov eax, ecx
+    mov ebx, 1
+    call user_range_validate
+    jc .bad_syscall_einval
+    cmp byte [eax], '/'
+    jne .bad_syscall_enoent
+
+.linux_readlinkat_args:
     mov ebx, ecx
     mov ecx, edx
     mov edx, esi
@@ -42286,10 +42464,13 @@ linux_glibc_elf_name_83 db "GLIBC   ELF"
 linux_exec_limits_elf_name_83 db "XLIMIT  ELF"
 linux_dir_elf_name_83 db "DIR     ELF"
 linux_fd_elf_name_83 db "FD      ELF"
+linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
+linux_proc_self_exe_elf_name_83 db "PROCEXE ELF"
 linux_ldoom_elf_name_83 db "LDOOM   ELF"
 linux_busybox_elf_name_83 db "BUSYBOX ELF"
+linux_tmpdir_elf_name_83 db "TMPDIR  ELF"
 linux_chromium_elf_name_83 db "CHROMIUMELF"
 linux_uts_sysname db "Linux", 0
 linux_uts_nodename db "vibe-os", 0
@@ -42320,13 +42501,18 @@ exec_path_linux_glibc db "/BIN/GLIBC.ELF", 0
 exec_path_linux_exec_limits db "/BIN/XLIMIT.ELF", 0
 exec_path_linux_dir db "/BIN/DIR.ELF", 0
 exec_path_linux_fd db "/BIN/FD.ELF", 0
+exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
+exec_path_linux_proc_self_exe db "/BIN/PROCEXE.ELF", 0
 exec_path_linux_ldoom db "/BIN/LDOOM.ELF", 0
 exec_path_linux_busybox db "/BIN/BUSYBOX.ELF", 0
+exec_path_linux_tmpdir db "/BIN/TMPDIR.ELF", 0
 exec_path_linux_chromium db "/BIN/CHROMIUM.ELF", 0
 linux_interp_ld_path db "/lib/ld-linux.so.2", 0
 linux_interp_ld_path_end:
+linux_path_proc_self_exe db "/proc/self/exe", 0
+linux_path_proc_self_exe_end:
 linux_path_lib db "/lib", 0
 linux_path_lib_end:
 linux_path_lib_slash db "/lib/", 0
@@ -42347,6 +42533,16 @@ linux_path_usr_lib_i386 db "/usr/lib/i386-linux-gnu", 0
 linux_path_usr_lib_i386_end:
 linux_path_usr_lib_i386_slash db "/usr/lib/i386-linux-gnu/", 0
 linux_path_usr_lib_i386_slash_end:
+linux_path_tmp db "/tmp", 0
+linux_path_tmp_end:
+linux_path_tmp_slash db "/tmp/", 0
+linux_path_tmp_slash_end:
+linux_path_tmp_chromium_profile db "/tmp/chromium-profile", 0
+linux_path_tmp_chromium_profile_end:
+linux_path_tmp_chromium_profile_slash db "/tmp/chromium-profile/", 0
+linux_path_tmp_chromium_profile_slash_end:
+linux_path_dev_null db "/dev/null", 0
+linux_path_dev_null_end:
 linux_libglib_name_83 db "GLIB20  SO0"
 linux_libgobject_name_83 db "GOBJ20  SO0"
 linux_libgio_name_83 db "GIO20   SO0"
