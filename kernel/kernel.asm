@@ -28,8 +28,8 @@ VGA_GRAPHICS_BUFFER equ 0x000a0000
 VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
-SMOKE_STATUS_ADDR equ 0x00040000
-SMOKE_STATUS_BYTES equ 65536
+SMOKE_STATUS_ADDR equ 0x00077000
+SMOKE_STATUS_BYTES equ 32768
 PAYLOAD_PRIMARY_STDOUT_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
@@ -12652,6 +12652,7 @@ storage_init:
     mov dword [linux_m1_smoke_personality], PERSONALITY_NATIVE
     mov dword [linux_m1_smoke_last_error], 0
     mov dword [linux_m1_smoke_exit_status], 0
+    mov dword [linux_m1_smoke_runtime_status_writes], 0
     mov dword [process_wait_attempts], 0
     mov dword [process_wait_reaps], 0
     mov dword [process_wait_failures], 0
@@ -23155,6 +23156,7 @@ large_elf_demand_page_fault:
     mov eax, [large_elf_demand_last_page]
     invlpg [eax]
     mov dword [large_elf_demand_status], 2
+    call linux_m1_smoke_maybe_write_runtime_status
     clc
     jmp .done
 
@@ -24012,6 +24014,7 @@ linux_m1_smoke_launch:
 
     inc dword [linux_m1_smoke_attempts]
     mov dword [linux_m1_smoke_status], 1
+    mov dword [linux_m1_smoke_runtime_status_writes], 0
     call write_smoke_status
 
 %ifdef LINUX_M0_INTERP_SMOKE
@@ -24201,6 +24204,15 @@ linux_m1_smoke_launch:
     call process_exec_seed_argv_stack
     jc .fail_after_activate
 
+    mov eax, [esi + PROC_PID]
+    mov [sys_exec_last_target_pid], eax
+    mov eax, [esi + PROC_PARENT_PID]
+    mov [sys_exec_last_parent_pid], eax
+    mov eax, [esi + PROC_SAVED_EIP]
+    mov [sys_exec_last_target_entry], eax
+    mov eax, [esi + PROC_SAVED_ESP]
+    mov [sys_exec_last_target_stack], eax
+    call irq_unmask_timer_keyboard
     inc dword [esi + PROC_EXEC_COUNT]
     inc dword [linux_m1_smoke_successes]
     call write_smoke_status
@@ -25460,6 +25472,7 @@ linux_syscall_note_enter:
     mov [linux_sys_last_arg3], esi
     mov [linux_sys_last_arg4], edi
     mov [linux_sys_last_arg5], ebp
+    call linux_m1_smoke_maybe_write_runtime_status
     popad
     ret
 
@@ -25506,12 +25519,25 @@ linux_syscall_note_return:
     rep movsd
 
 .done:
+    call linux_m1_smoke_maybe_write_runtime_status
     pop edi
     pop esi
     pop edx
     pop ecx
     pop ebx
     popfd
+    ret
+
+linux_m1_smoke_maybe_write_runtime_status:
+%ifdef LINUX_M1_SMOKE
+    cmp dword [linux_m1_smoke_status], 1
+    jne .done
+    cmp dword [linux_m1_smoke_runtime_status_writes], 32
+    jae .done
+    inc dword [linux_m1_smoke_runtime_status_writes]
+    call write_smoke_status
+.done:
+%endif
     ret
 
 linux_record_path_arg:
@@ -43363,6 +43389,7 @@ linux_m1_smoke_failures dd 0
 linux_m1_smoke_personality dd PERSONALITY_NATIVE
 linux_m1_smoke_last_error dd 0
 linux_m1_smoke_exit_status dd 0
+linux_m1_smoke_runtime_status_writes dd 0
 sys_exec_stage_base dd 0
 sys_exec_stage_alloc_status dd 0
 sys_exec_stage_bytes dd 0

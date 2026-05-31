@@ -43,6 +43,8 @@ SMOKE_EXPECT_GUEST_EXIT ?= 0
 SMOKE_GUEST_EXIT_KEYS ?=
 SMOKE_NO_REBOOT ?= 1
 SMOKE_NO_SHUTDOWN ?= 1
+SMOKE_STATUS_ADDR ?= 0x77000
+SMOKE_STATUS_BYTES ?= 32768
 PERSISTENCE_BASELINE_IMAGE ?=
 PERSISTENCE_REBOOT_BASELINE_IMAGE ?=
 PERSISTENCE_REBOOT_STATUS ?=
@@ -62,6 +64,7 @@ STAGE2_LBA ?= 1
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
 STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
+KERNEL_NASMFLAGS_STAMP := $(BUILD_DIR)/kernel.nasmflags.stamp
 C_RUNTIME_OBJ := $(BUILD_DIR)/c_runtime_probe.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 LINK_ELF32 := $(BUILD_DIR)/link_elf32
@@ -390,7 +393,16 @@ $(STAGE2_BIN): boot/stage2.asm | $(BUILD_DIR)
 	$(NASM) -f bin -D STAGE2_LBA=$(STAGE2_LBA) $< -o $@
 	@test $$(wc -c < $@) -le $(STAGE2_MAX_BYTES) || { echo "stage2 exceeds $(STAGE2_MAX_BYTES) bytes"; exit 1; }
 
-$(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)
+$(KERNEL_NASMFLAGS_STAMP): FORCE | $(BUILD_DIR)
+	@tmp="$@.tmp"; \
+	printf '%s\n' "$(KERNEL_EXTRA_NASMFLAGS)" > "$$tmp"; \
+	if [ -f "$@" ] && cmp -s "$$tmp" "$@"; then \
+		rm -f "$$tmp"; \
+	else \
+		mv "$$tmp" "$@"; \
+	fi
+
+$(KERNEL_OBJ): kernel/kernel.asm $(KERNEL_NASMFLAGS_STAMP) | $(BUILD_DIR)
 	$(NASM) -f elf32 -D ELF_KERNEL $(KERNEL_EXTRA_NASMFLAGS) $< -o $@
 
 $(C_RUNTIME_OBJ): $(C_RUNTIME_SRC) | $(BUILD_DIR)
@@ -830,6 +842,8 @@ smoke: vm-consent check-tools $(IMAGE)
 		SMOKE_GUEST_EXIT_KEYS="$(SMOKE_GUEST_EXIT_KEYS)" \
 		SMOKE_NO_REBOOT="$(SMOKE_NO_REBOOT)" \
 		SMOKE_NO_SHUTDOWN="$(SMOKE_NO_SHUTDOWN)" \
+		SMOKE_STATUS_ADDR="$(SMOKE_STATUS_ADDR)" \
+		SMOKE_STATUS_BYTES="$(SMOKE_STATUS_BYTES)" \
 		SMOKE_SENDKEYS="$(SMOKE_SENDKEYS)" \
 		SMOKE_INPUT_SCRIPT="$(SMOKE_INPUT_SCRIPT)" \
 		tests/run_smoke_qemu.sh
