@@ -207,7 +207,7 @@ BOOT_LOADER_FLAG_KERNEL_FAT_READ equ 0x00010000
 BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK equ 0x00020000
 BOOT_LOADER_REQUIRED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
 BIOS_BOOT_EXPECTED_STAGE2_SECTORS equ 16
-BIOS_BOOT_EXPECTED_KERNEL_SECTORS equ 416
+BIOS_BOOT_EXPECTED_KERNEL_SECTORS equ 448
 BIOS_BOOT_EXPECTED_STAGE2_LBA equ 1
 BIOS_BOOT_EXPECTED_KERNEL_LBA equ 17
 BIOS_BOOT_EXPECTED_PARTITION_LBA equ 2048
@@ -640,7 +640,7 @@ PROC_STATE_SLEEPING equ 5
 PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 7
 PROCESS_GENERIC_SLOT_COUNT equ 3
-PROCESS_RECORD_BYTES equ 192
+PROCESS_RECORD_BYTES equ 248
 PERSONALITY_NATIVE equ 0
 PERSONALITY_LINUX equ 1
 PROCESS_EXEC_TABLE_COUNT equ 2
@@ -703,6 +703,20 @@ PROC_HEAP_BITMAP equ 176
 PROC_HEAP_PAGE_COUNT equ 180
 PROC_PERSONALITY equ 184            ; PERSONALITY_NATIVE / PERSONALITY_LINUX
 PROC_LINUX_TLS_BASE equ 188
+PROC_LINUX_SET_TID_ADDR equ 192
+PROC_LINUX_ROBUST_LIST_HEAD equ 196
+PROC_LINUX_ROBUST_LIST_LEN equ 200
+PROC_LINUX_SIGMASK_LO equ 204
+PROC_LINUX_SIGMASK_HI equ 208
+PROC_LINUX_SIGALTSTACK_SP equ 212
+PROC_LINUX_SIGALTSTACK_FLAGS equ 216
+PROC_LINUX_SIGALTSTACK_SIZE equ 220
+PROC_LINUX_SIGACTION_SIGNUM equ 224
+PROC_LINUX_SIGACTION_HANDLER equ 228
+PROC_LINUX_SIGACTION_FLAGS equ 232
+PROC_LINUX_SIGACTION_RESTORER equ 236
+PROC_LINUX_SIGACTION_MASK_LO equ 240
+PROC_LINUX_SIGACTION_MASK_HI equ 244
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 PROC_FLAG_SHARED_VM equ 0x2
 PROC_FLAGS_TRANSIENT_MASK equ PROC_FLAG_IRQ_FRAME_VALID | PROC_FLAG_SHARED_VM
@@ -796,6 +810,22 @@ FD_KIND_DIRECTORY equ 4
 FD_KIND_PIPE_READ equ 5
 FD_KIND_PIPE_WRITE equ 6
 FD_KIND_DEV_NULL equ 7
+FD_KIND_EVENTFD equ 8
+FD_KIND_EPOLL equ 9
+FD_KIND_TIMERFD equ 10
+FD_KIND_DEV_ZERO equ 11
+FD_KIND_DEV_URANDOM equ 12
+FD_KIND_SYNTHETIC_FILE equ 13
+
+LINUX_SYNTHETIC_FILE_CMDLINE equ 1
+LINUX_SYNTHETIC_FILE_STATUS equ 2
+LINUX_SYNTHETIC_FILE_STAT equ 3
+LINUX_SYNTHETIC_FILE_MAPS equ 4
+LINUX_SYNTHETIC_FILE_FD0 equ 5
+LINUX_SYNTHETIC_FILE_FD1 equ 6
+LINUX_SYNTHETIC_FILE_FD2 equ 7
+LINUX_SYNTHETIC_FILE_OS_RELEASE equ 8
+LINUX_SYNTHETIC_FILE_COUNT equ 8
 FD_INHERIT_EXEC equ 0x1
 FD_CLOEXEC equ 0x1
 F_DUPFD equ 0
@@ -826,6 +856,11 @@ O_NONBLOCK equ 0x1000
 O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC | O_NONBLOCK
 PIPE_SLOT_COUNT equ 4
 PIPE_BUFFER_BYTES equ 256
+EVENTFD_SLOT_COUNT equ 8
+EPOLL_SLOT_COUNT equ 4
+EPOLL_ENTRY_COUNT equ 16
+EPOLL_EVENT_BYTES equ 12
+TIMERFD_SLOT_COUNT equ 8
 VFS_ABI_OPEN equ 0x00000001
 VFS_ABI_READ equ 0x00000002
 VFS_ABI_WRITE equ 0x00000004
@@ -1137,6 +1172,7 @@ STAT_ST_MODE equ 8
 STAT_ST_NLINK equ 12
 STAT_ST_SIZE equ 28
 STAT_BYTES equ 44
+STAT_S_IFIFO equ 0x00001000
 STAT_S_IFREG equ 0x00008000
 STAT_S_IFDIR equ 0x00004000
 STAT_S_IFCHR equ 0x00002000
@@ -1147,6 +1183,7 @@ STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR
 STAT_MODE_READONLY_DIR equ STAT_S_IFDIR | STAT_S_IRUSR
 STAT_MODE_WRITABLE_DIR equ STAT_S_IFDIR | STAT_S_IRUSR | STAT_S_IWUSR
 STAT_MODE_STDIO_CHR equ STAT_S_IFCHR | STAT_S_IRUSR | STAT_S_IWUSR
+STAT_MODE_PIPE_FIFO equ STAT_S_IFIFO | STAT_S_IRUSR | STAT_S_IWUSR
 FAT_ATTR_READ_ONLY equ 0x01
 FAT_ATTR_VOLUME_ID equ 0x08
 FAT_ATTR_DIRECTORY equ 0x10
@@ -1157,7 +1194,9 @@ VIBE_DIRENT_MODE equ 20
 VIBE_DIRENT_FIRST_CLUSTER equ 24
 VIBE_DIRENT_ATTRIBUTES equ 28
 VIBE_DIRENT_BYTES equ 32
+ERRNO_EPERM equ 1
 ERRNO_ENOENT equ 2
+ERRNO_ESRCH equ 3
 ERRNO_EIO equ 5
 ERRNO_E2BIG equ 7
 ERRNO_ENOEXEC equ 8
@@ -12260,6 +12299,9 @@ storage_init:
     mov dword [pipe_lengths + ebx * 4], 0
     inc ebx
     loop .clear_pipes
+    call eventfd_reset_all
+    call epoll_reset_all
+    call timerfd_reset_all
     mov ecx, WRITABLE_FILE_COUNT
     xor ebx, ebx
 
@@ -12348,6 +12390,7 @@ storage_init:
     mov dword [linux_clone_last_arg3], 0
     mov dword [linux_clone_last_arg4], 0
     mov dword [linux_clone_last_ctid], 0
+    mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
     mov dword [syscall_abi_version_seen], VIBE_USER_ABI_VERSION
     mov dword [syscall_trap_vector_seen], SYSCALL_TRAP_VECTOR
@@ -12615,6 +12658,7 @@ storage_init:
     mov dword [large_elf_demand_sequence], 0
     mov dword [large_elf_demand_handled_sequence], 0
     mov dword [large_elf_demand_refaults], 0
+    mov dword [linux_m1_smoke_status_last_demand_sequence], 0
     mov dword [large_elf_demand_last_addr], 0
     mov dword [large_elf_demand_last_page], 0
     mov dword [large_elf_demand_last_segment], 0
@@ -12661,6 +12705,9 @@ storage_init:
     mov dword [linux_m1_smoke_last_error], 0
     mov dword [linux_m1_smoke_exit_status], 0
     mov dword [linux_m1_smoke_runtime_status_writes], 0
+    mov dword [linux_m1_smoke_status_last_syscall_count], 0
+    mov dword [linux_m1_smoke_status_last_demand_sequence], 0
+    mov dword [linux_m1_smoke_status_last_unimpl_nr], 0
     mov dword [process_wait_attempts], 0
     mov dword [process_wait_reaps], 0
     mov dword [process_wait_failures], 0
@@ -15667,6 +15714,9 @@ fd_reset_all:
     loop .loop
 
     call pipe_reset_all
+    call eventfd_reset_all
+    call epoll_reset_all
+    call timerfd_reset_all
 
     pop ecx
     pop ebx
@@ -15684,6 +15734,72 @@ pipe_reset_all:
     mov byte [pipe_read_open + ebx], 0
     mov byte [pipe_write_open + ebx], 0
     mov dword [pipe_lengths + ebx * 4], 0
+    inc ebx
+    loop .loop
+
+    pop ecx
+    pop ebx
+    ret
+
+eventfd_reset_all:
+    push ebx
+    push ecx
+
+    mov ecx, EVENTFD_SLOT_COUNT
+    xor ebx, ebx
+
+.loop:
+    mov byte [eventfd_status + ebx], 0
+    mov dword [eventfd_counter_low + ebx * 4], 0
+    mov dword [eventfd_counter_high + ebx * 4], 0
+    inc ebx
+    loop .loop
+
+    pop ecx
+    pop ebx
+    ret
+
+epoll_reset_all:
+    push ebx
+    push ecx
+
+    mov ecx, EPOLL_SLOT_COUNT
+    xor ebx, ebx
+
+.slot_loop:
+    mov byte [epoll_status + ebx], 0
+    inc ebx
+    loop .slot_loop
+
+    mov ecx, EPOLL_ENTRY_COUNT
+    xor ebx, ebx
+
+.entry_loop:
+    mov byte [epoll_entry_status + ebx], 0
+    mov dword [epoll_entry_owner + ebx * 4], 0
+    mov dword [epoll_entry_fd + ebx * 4], 0
+    mov dword [epoll_entry_events + ebx * 4], 0
+    mov dword [epoll_entry_data_low + ebx * 4], 0
+    mov dword [epoll_entry_data_high + ebx * 4], 0
+    inc ebx
+    loop .entry_loop
+
+    pop ecx
+    pop ebx
+    ret
+
+timerfd_reset_all:
+    push ebx
+    push ecx
+
+    mov ecx, TIMERFD_SLOT_COUNT
+    xor ebx, ebx
+
+.loop:
+    mov byte [timerfd_status + ebx], 0
+    mov dword [timerfd_clockid + ebx * 4], 0
+    mov dword [timerfd_expirations_low + ebx * 4], 0
+    mov dword [timerfd_expirations_high + ebx * 4], 0
     inc ebx
     loop .loop
 
@@ -15720,6 +15836,76 @@ pipe_close_root_fd:
     jne .done
     mov byte [pipe_status + eax], 0
     mov dword [pipe_lengths + eax * 4], 0
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+fd_close_root_resources:
+    push eax
+    push ebx
+
+    cmp ebx, USER_FD_COUNT
+    jae .done
+    cmp byte [fd_kinds + ebx], FD_KIND_PIPE_READ
+    je .close_pipe
+    cmp byte [fd_kinds + ebx], FD_KIND_PIPE_WRITE
+    je .close_pipe
+    cmp byte [fd_kinds + ebx], FD_KIND_EVENTFD
+    je .close_eventfd
+    cmp byte [fd_kinds + ebx], FD_KIND_EPOLL
+    je .close_epoll
+    cmp byte [fd_kinds + ebx], FD_KIND_TIMERFD
+    jne .done
+
+.close_timerfd:
+    mov eax, [fd_indices + ebx * 4]
+    cmp eax, TIMERFD_SLOT_COUNT
+    jae .done
+    mov byte [timerfd_status + eax], 0
+    mov dword [timerfd_expirations_low + eax * 4], 0
+    mov dword [timerfd_expirations_high + eax * 4], 0
+    jmp .done
+
+.close_eventfd:
+    mov eax, [fd_indices + ebx * 4]
+    cmp eax, EVENTFD_SLOT_COUNT
+    jae .done
+    mov byte [eventfd_status + eax], 0
+    mov dword [eventfd_counter_low + eax * 4], 0
+    mov dword [eventfd_counter_high + eax * 4], 0
+    jmp .done
+
+.close_epoll:
+    mov eax, [fd_indices + ebx * 4]
+    cmp eax, EPOLL_SLOT_COUNT
+    jae .done
+    push ecx
+    push edx
+    mov byte [epoll_status + eax], 0
+    mov edx, eax
+    mov ecx, EPOLL_ENTRY_COUNT
+    xor eax, eax
+
+.close_epoll_entry_loop:
+    cmp [epoll_entry_owner + eax * 4], edx
+    jne .close_epoll_next
+    mov byte [epoll_entry_status + eax], 0
+    mov dword [epoll_entry_fd + eax * 4], 0
+    mov dword [epoll_entry_events + eax * 4], 0
+    mov dword [epoll_entry_data_low + eax * 4], 0
+    mov dword [epoll_entry_data_high + eax * 4], 0
+
+.close_epoll_next:
+    inc eax
+    loop .close_epoll_entry_loop
+    pop edx
+    pop ecx
+    jmp .done
+
+.close_pipe:
+    call pipe_close_root_fd
 
 .done:
     pop ebx
@@ -15878,7 +16064,7 @@ fd_close_slot:
     cmp dword [fd_refcounts + edx * 4], 0
     jne .done
     mov ebx, edx
-    call pipe_close_root_fd
+    call fd_close_root_resources
     call fd_clear_slot
     jmp .done
 
@@ -15886,7 +16072,7 @@ fd_close_slot:
     cmp dword [fd_refcounts + edx * 4], 1
     ja .promote_root
     mov ebx, edx
-    call pipe_close_root_fd
+    call fd_close_root_resources
     call fd_clear_slot
     jmp .done
 
@@ -19552,6 +19738,34 @@ process_fork_copy_metadata:
     mov [edi + PROC_PERSONALITY], eax
     mov eax, [esi + PROC_LINUX_TLS_BASE]
     mov [edi + PROC_LINUX_TLS_BASE], eax
+    mov eax, [esi + PROC_LINUX_SET_TID_ADDR]
+    mov [edi + PROC_LINUX_SET_TID_ADDR], eax
+    mov eax, [esi + PROC_LINUX_ROBUST_LIST_HEAD]
+    mov [edi + PROC_LINUX_ROBUST_LIST_HEAD], eax
+    mov eax, [esi + PROC_LINUX_ROBUST_LIST_LEN]
+    mov [edi + PROC_LINUX_ROBUST_LIST_LEN], eax
+    mov eax, [esi + PROC_LINUX_SIGMASK_LO]
+    mov [edi + PROC_LINUX_SIGMASK_LO], eax
+    mov eax, [esi + PROC_LINUX_SIGMASK_HI]
+    mov [edi + PROC_LINUX_SIGMASK_HI], eax
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_SP]
+    mov [edi + PROC_LINUX_SIGALTSTACK_SP], eax
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_FLAGS]
+    mov [edi + PROC_LINUX_SIGALTSTACK_FLAGS], eax
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_SIZE]
+    mov [edi + PROC_LINUX_SIGALTSTACK_SIZE], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_SIGNUM]
+    mov [edi + PROC_LINUX_SIGACTION_SIGNUM], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_HANDLER]
+    mov [edi + PROC_LINUX_SIGACTION_HANDLER], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_FLAGS]
+    mov [edi + PROC_LINUX_SIGACTION_FLAGS], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_RESTORER]
+    mov [edi + PROC_LINUX_SIGACTION_RESTORER], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_MASK_LO]
+    mov [edi + PROC_LINUX_SIGACTION_MASK_LO], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_MASK_HI]
+    mov [edi + PROC_LINUX_SIGACTION_MASK_HI], eax
     mov dword [edi + PROC_EXIT_STATUS], 0
     push esi
     push edi
@@ -20008,7 +20222,22 @@ process_seed_initial_user_context:
     or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
     mov dword [esi + PROC_PERSONALITY], PERSONALITY_NATIVE
     mov dword [esi + PROC_LINUX_TLS_BASE], 0
+    call process_linux_clear_metadata
     call process_fpu_reset_context
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+process_linux_clear_metadata:
+    push eax
+    push ecx
+    push edi
+    lea edi, [esi + PROC_LINUX_SET_TID_ADDR]
+    xor eax, eax
+    mov ecx, (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4
+    cld
+    rep stosd
     pop edi
     pop ecx
     pop eax
@@ -21852,6 +22081,16 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_tmpdir
 
+    mov edi, exec_path_linux_procid
+    call kernel_streq
+    cmp al, 1
+    je .linux_procid
+
+    mov edi, exec_path_linux_libmagic
+    call kernel_streq
+    cmp al, 1
+    je .linux_libmagic
+
     mov edi, exec_path_linux_ldoom
     call kernel_streq
     cmp al, 1
@@ -22016,6 +22255,20 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_tmpdir_elf_name_83
+    jmp .linux_bin_app
+
+.linux_procid:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_procid_elf_name_83
+    jmp .linux_bin_app
+
+.linux_libmagic:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_libmagic_elf_name_83
     jmp .linux_bin_app
 
 .linux_ldoom:
@@ -24082,6 +24335,9 @@ linux_m1_smoke_launch:
     inc dword [linux_m1_smoke_attempts]
     mov dword [linux_m1_smoke_status], 1
     mov dword [linux_m1_smoke_runtime_status_writes], 0
+    mov dword [linux_m1_smoke_status_last_syscall_count], 0
+    mov dword [linux_m1_smoke_status_last_demand_sequence], 0
+    mov dword [linux_m1_smoke_status_last_unimpl_nr], 0
     call write_smoke_status
 
 %ifdef LINUX_M0_INTERP_SMOKE
@@ -24157,6 +24413,12 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_DEV_NULL_SMOKE
     mov esi, exec_path_linux_dev_null
+%endif
+%ifdef LINUX_M1_PROCID_SMOKE
+    mov esi, exec_path_linux_procid
+%endif
+%ifdef LINUX_M1_LIBMAGIC_SMOKE
+    mov esi, exec_path_linux_libmagic
 %endif
     xor edi, edi
     call process_exec_path
@@ -24256,6 +24518,12 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_DEV_NULL_SMOKE
     mov esi, exec_path_linux_dev_null
+%endif
+%ifdef LINUX_M1_PROCID_SMOKE
+    mov esi, exec_path_linux_procid
+%endif
+%ifdef LINUX_M1_LIBMAGIC_SMOKE
+    mov esi, exec_path_linux_libmagic
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -25457,14 +25725,22 @@ LINUX_SYS_CLOSE equ 6
 LINUX_SYS_WAITPID equ 7
 LINUX_SYS_LSEEK equ 19
 LINUX_SYS_GETPID equ 20
+LINUX_SYS_GETUID equ 24
 LINUX_SYS_ACCESS equ 33
 LINUX_SYS_DUP equ 41
 LINUX_SYS_PIPE equ 42
 LINUX_SYS_BRK equ 45
+LINUX_SYS_GETGID equ 47
+LINUX_SYS_GETEUID equ 49
+LINUX_SYS_GETEGID equ 50
 LINUX_SYS_FCNTL equ 55
 LINUX_SYS_IOCTL equ 54
+LINUX_SYS_SETPGID equ 57
 LINUX_SYS_GETRLIMIT equ 76
 LINUX_SYS_DUP2 equ 63
+LINUX_SYS_GETPPID equ 64
+LINUX_SYS_GETPGID equ 132
+LINUX_SYS_GETSID equ 147
 LINUX_SYS_SETSID equ 66
 LINUX_SYS_READLINK equ 85
 LINUX_SYS_MUNMAP equ 91
@@ -25474,10 +25750,13 @@ LINUX_SYS_CLONE equ 120
 LINUX_SYS_UNAME equ 122
 LINUX_SYS_MPROTECT equ 125
 LINUX_SYS_LLSEEK equ 140
+LINUX_SYS_SELECT equ 142
 LINUX_SYS_WRITEV equ 146
+LINUX_SYS_POLL equ 168
 LINUX_SYS_PRCTL equ 172
 LINUX_SYS_RT_SIGACTION equ 174
 LINUX_SYS_RT_SIGPROCMASK equ 175
+LINUX_SYS_SIGALTSTACK equ 186
 LINUX_SYS_PREAD64 equ 180
 LINUX_SYS_UGETRLIMIT equ 191
 LINUX_SYS_MMAP2 equ 192
@@ -25491,13 +25770,25 @@ LINUX_SYS_FUTEX equ 240
 LINUX_SYS_SCHED_GETAFFINITY equ 242
 LINUX_SYS_SET_THREAD_AREA equ 243
 LINUX_SYS_EXIT_GROUP equ 252
+LINUX_SYS_EPOLL_CREATE equ 254
+LINUX_SYS_EPOLL_CTL equ 255
+LINUX_SYS_EPOLL_WAIT equ 256
 LINUX_SYS_SET_TID_ADDRESS equ 258
 LINUX_SYS_CLOCK_GETTIME equ 265
 LINUX_SYS_OPENAT equ 295
 LINUX_SYS_FSTATAT64 equ 300
 LINUX_SYS_READLINKAT equ 305
 LINUX_SYS_FACCESSAT equ 307
+LINUX_SYS_PSELECT6 equ 308
+LINUX_SYS_PPOLL equ 309
 LINUX_SYS_SET_ROBUST_LIST equ 311
+LINUX_SYS_GET_ROBUST_LIST equ 312
+LINUX_SYS_TIMERFD_CREATE equ 322
+LINUX_SYS_EVENTFD equ 323
+LINUX_SYS_TIMERFD_SETTIME equ 325
+LINUX_SYS_TIMERFD_GETTIME equ 326
+LINUX_SYS_EVENTFD2 equ 328
+LINUX_SYS_EPOLL_CREATE1 equ 329
 LINUX_SYS_DUP3 equ 330
 LINUX_SYS_PIPE2 equ 331
 LINUX_SYS_PRLIMIT64 equ 340
@@ -25512,9 +25803,11 @@ LINUX_SOCKETCALL_SETSOCKOPT equ 14
 LINUX_SIGCHLD equ 17
 LINUX_CLONE_VM equ 0x00000100
 LINUX_CLONE_VFORK equ 0x00004000
+LINUX_CLONE_SETTLS equ 0x00080000
+LINUX_CLONE_PARENT_SETTID equ 0x00100000
 LINUX_CLONE_CHILD_CLEARTID equ 0x00200000
 LINUX_CLONE_CHILD_SETTID equ 0x01000000
-LINUX_CLONE_FORK_HIGH_MASK equ LINUX_CLONE_CHILD_CLEARTID | LINUX_CLONE_CHILD_SETTID
+LINUX_CLONE_FORK_HIGH_MASK equ LINUX_CLONE_SETTLS | LINUX_CLONE_PARENT_SETTID | LINUX_CLONE_CHILD_CLEARTID | LINUX_CLONE_CHILD_SETTID
 LINUX_CLONE_VFORK_FULL_COPY_MASK equ LINUX_CLONE_VM | LINUX_CLONE_VFORK
 LINUX_AF_UNIX equ 1
 LINUX_SOCK_STREAM equ 1
@@ -25542,6 +25835,41 @@ LINUX_O_NOFOLLOW equ 0x00020000
 LINUX_O_CLOEXEC equ 0x00080000
 LINUX_OPEN_KNOWN_MASK equ LINUX_O_ACCMODE | LINUX_O_CREAT | LINUX_O_TRUNC | LINUX_O_APPEND | LINUX_O_NONBLOCK | LINUX_O_LARGEFILE | LINUX_O_DIRECTORY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC
 LINUX_PIPE2_KNOWN_MASK equ LINUX_O_CLOEXEC | LINUX_O_NONBLOCK
+LINUX_EFD_SEMAPHORE equ 0x00000001
+LINUX_EFD_NONBLOCK equ LINUX_O_NONBLOCK
+LINUX_EFD_CLOEXEC equ LINUX_O_CLOEXEC
+LINUX_EFD_KNOWN_MASK equ LINUX_EFD_NONBLOCK | LINUX_EFD_CLOEXEC
+LINUX_EPOLL_CLOEXEC equ LINUX_O_CLOEXEC
+LINUX_EPOLL_CTL_ADD equ 1
+LINUX_EPOLL_CTL_DEL equ 2
+LINUX_EPOLL_CTL_MOD equ 3
+LINUX_EPOLLIN equ 0x00000001
+LINUX_EPOLLOUT equ 0x00000004
+LINUX_EPOLLERR equ 0x00000008
+LINUX_EPOLLHUP equ 0x00000010
+LINUX_EPOLL_KNOWN_EVENT_MASK equ 0xffffffff
+LINUX_POLLIN equ 0x0001
+LINUX_POLLPRI equ 0x0002
+LINUX_POLLOUT equ 0x0004
+LINUX_POLLERR equ 0x0008
+LINUX_POLLHUP equ 0x0010
+LINUX_POLLNVAL equ 0x0020
+LINUX_POLLFD_BYTES equ 8
+LINUX_POLL_MAX_NFDS equ 1024
+LINUX_SELECT_MAX_NFDS equ 1024
+LINUX_TIMEVAL_BYTES equ 8
+LINUX_TIMESPEC_BYTES equ 8
+LINUX_ITIMERSPEC_INTERVAL_SEC equ 0
+LINUX_ITIMERSPEC_INTERVAL_NSEC equ 4
+LINUX_ITIMERSPEC_VALUE_SEC equ 8
+LINUX_ITIMERSPEC_VALUE_NSEC equ 12
+LINUX_ITIMERSPEC_BYTES equ 16
+LINUX_PSELECT6_SIGMASK_BYTES equ 8
+LINUX_TFD_NONBLOCK equ LINUX_O_NONBLOCK
+LINUX_TFD_CLOEXEC equ LINUX_O_CLOEXEC
+LINUX_TFD_CREATE_KNOWN_MASK equ LINUX_TFD_NONBLOCK | LINUX_TFD_CLOEXEC
+LINUX_TFD_TIMER_ABSTIME equ 0x00000001
+LINUX_TFD_SETTIME_KNOWN_MASK equ LINUX_TFD_TIMER_ABSTIME
 LINUX_STAT64_BYTES equ 96
 LINUX_STAT64_MODE equ 16
 LINUX_STAT64_NLINK equ 20
@@ -25564,8 +25892,24 @@ LINUX_RLIMIT32_BYTES equ 8
 LINUX_RLIMIT64_BYTES equ 16
 LINUX_RT_SIGSET_BYTES equ 8
 LINUX_RT_SIGACTION_BYTES equ 20
+LINUX_SIGACTION_SIGNUM_MAX equ 64
+LINUX_SIGACTION_HANDLER equ 0
+LINUX_SIGACTION_FLAGS equ 4
+LINUX_SIGACTION_RESTORER equ 8
+LINUX_SIGACTION_MASK_LO equ 12
+LINUX_SIGACTION_MASK_HI equ 16
+LINUX_SIG_BLOCK equ 0
+LINUX_SIG_UNBLOCK equ 1
+LINUX_SIG_SETMASK equ 2
+LINUX_STACK_T_BYTES equ 12
+LINUX_STACK_T_SP equ 0
+LINUX_STACK_T_FLAGS equ 4
+LINUX_STACK_T_SIZE equ 8
+LINUX_SS_DISABLE equ 2
+LINUX_SS_ALLOWED_MASK equ LINUX_SS_DISABLE
 LINUX_ROBUST_LIST_HEAD_BYTES equ 12
 LINUX_FUTEX_CMD_MASK equ 0x7f
+LINUX_FUTEX_PRIVATE_FLAG equ 0x80
 LINUX_FUTEX_WAIT equ 0
 LINUX_FUTEX_WAKE equ 1
 LINUX_DIRENT64_INO equ 0
@@ -25579,6 +25923,10 @@ LINUX_DT_REG equ 8
 LINUX_PATH_SNAPSHOT_BYTES equ 32
 LINUX_SYNTHETIC_DIR_CLUSTER equ 0xffffffff
 LINUX_LIBRARY_ALIAS_COUNT equ 30
+LINUX_CHROMIUM_RESOURCE_ALIAS_COUNT equ 8
+LINUX_M1_STATUS_WRITE_LIMIT equ 96
+LINUX_M1_STATUS_SYSCALL_STRIDE equ 128
+LINUX_M1_STATUS_DEMAND_STRIDE equ 128
 
 ; linux_syscall_unimpl: default handler for unimplemented Linux syscalls.
 ; Records the number for guest-status proof and returns -ENOSYS in EAX
@@ -25602,10 +25950,10 @@ linux_syscall_note_enter:
     mov [linux_sys_last_arg4], edi
     mov [linux_sys_last_arg5], ebp
     cmp dword [large_elf_demand_handled_sequence], 0
-    je .write_status
+    je .done
     inc dword [linux_syscall_after_demand_count]
     cmp dword [linux_syscall_after_demand_sequence], 0
-    jne .write_status
+    jne .done
     mov eax, [linux_syscall_count]
     mov [linux_syscall_after_demand_sequence], eax
     mov eax, [current_syscall_number]
@@ -25613,8 +25961,7 @@ linux_syscall_note_enter:
     mov eax, [syscall_entry_eip_last]
     mov [linux_syscall_after_demand_eip], eax
 
-.write_status:
-    call linux_m1_smoke_maybe_write_runtime_status
+.done:
     popad
     ret
 
@@ -25672,18 +26019,55 @@ linux_syscall_note_return:
 
 linux_m1_smoke_maybe_write_runtime_status:
 %ifdef LINUX_M1_SMOKE
+    pushfd
+    pushad
     cmp dword [linux_m1_smoke_status], 1
-    jne .done
-    cmp dword [linux_m1_smoke_runtime_status_writes], 32
-    jae .done
+    jne .restore
+    cmp dword [linux_m1_smoke_runtime_status_writes], LINUX_M1_STATUS_WRITE_LIMIT
+    jae .restore
+
+    mov eax, [linux_last_unimpl_nr]
+    test eax, eax
+    jz .check_demand
+    cmp eax, [linux_m1_smoke_status_last_unimpl_nr]
+    jne .write
+
+.check_demand:
+    mov eax, [large_elf_demand_sequence]
+    cmp eax, [linux_m1_smoke_status_last_demand_sequence]
+    je .check_syscall
+    mov edx, eax
+    and edx, LINUX_M1_STATUS_DEMAND_STRIDE - 1
+    jz .write
+    cmp dword [large_elf_demand_failures], 0
+    jne .write
+
+.check_syscall:
+    mov eax, [linux_syscall_count]
+    cmp eax, [linux_m1_smoke_status_last_syscall_count]
+    je .restore
+    mov edx, eax
+    and edx, LINUX_M1_STATUS_SYSCALL_STRIDE - 1
+    jnz .restore
+
+.write:
+    mov eax, [linux_syscall_count]
+    mov [linux_m1_smoke_status_last_syscall_count], eax
+    mov eax, [large_elf_demand_sequence]
+    mov [linux_m1_smoke_status_last_demand_sequence], eax
+    mov eax, [linux_last_unimpl_nr]
+    mov [linux_m1_smoke_status_last_unimpl_nr], eax
     inc dword [linux_m1_smoke_runtime_status_writes]
     call write_smoke_status
-.done:
+.restore:
+    popad
+    popfd
 %endif
     ret
 
 linux_record_path_arg:
     pushad
+    mov dword [linux_relative_synthetic_dir_arg], 0
     mov [linux_path_last_ptr], ebx
     mov eax, [current_syscall_number]
     mov [linux_path_last_nr], eax
@@ -25716,7 +26100,63 @@ linux_record_path_arg:
     mov dword [linux_path_last_valid], 1
 
 .done:
-    popad
+	    popad
+	    ret
+
+linux_path_has_prefix_child:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, eax
+    mov edx, ebx
+    inc ebx
+    call user_range_validate
+    jc .fail
+    mov ecx, edx
+    repe cmpsb
+    jne .fail
+    cmp byte [esi], 0
+    je .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_path_is_relative_child:
+    push eax
+    push ebx
+
+    mov eax, [syscall_ptr_arg]
+    cmp eax, 0
+    je .fail
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
+    cmp byte [eax], 0
+    je .fail
+    cmp byte [eax], '/'
+    je .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    pop eax
     ret
 
 linux_path_is_synthetic_lib_dir:
@@ -25754,6 +26194,28 @@ linux_path_is_synthetic_lib_dir:
     mov edi, linux_path_usr_lib_slash
     call user_path_equals
     jnc .ok
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_usr_lib_chromium_end - linux_path_usr_lib_chromium
+    mov edi, linux_path_usr_lib_chromium
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_usr_lib_chromium_slash_end - linux_path_usr_lib_chromium_slash
+    mov edi, linux_path_usr_lib_chromium_slash
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_usr_lib_chromium_locales_end - linux_path_usr_lib_chromium_locales
+    mov edi, linux_path_usr_lib_chromium_locales
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_usr_lib_chromium_locales_slash_end - linux_path_usr_lib_chromium_locales_slash
+    mov edi, linux_path_usr_lib_chromium_locales_slash
+    call user_path_equals
+    jnc .ok
+%endif
     mov eax, [syscall_ptr_arg]
     mov ebx, linux_path_lib_i386_end - linux_path_lib_i386
     mov edi, linux_path_lib_i386
@@ -25794,6 +26256,59 @@ linux_path_is_synthetic_lib_dir:
     mov edi, linux_path_tmp_chromium_profile_slash
     call user_path_equals
     jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_tmp_chromium_profile_slash_end - linux_path_tmp_chromium_profile_slash - 1
+    mov edi, linux_path_tmp_chromium_profile_slash
+    call linux_path_has_prefix_child
+    jnc .ok
+    cmp dword [linux_relative_synthetic_dir_arg], 1
+    jne .check_proc_dirs
+    call linux_path_is_relative_child
+    jnc .ok
+
+.check_proc_dirs:
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_end - linux_path_proc
+    mov edi, linux_path_proc
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_slash_end - linux_path_proc_slash
+    mov edi, linux_path_proc_slash
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_end - linux_path_proc_self
+    mov edi, linux_path_proc_self
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_slash_end - linux_path_proc_self_slash
+    mov edi, linux_path_proc_self_slash
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_fd_end - linux_path_proc_self_fd
+    mov edi, linux_path_proc_self_fd
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_fd_slash_end - linux_path_proc_self_fd_slash
+    mov edi, linux_path_proc_self_fd_slash
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_dev_end - linux_path_dev
+    mov edi, linux_path_dev
+    call user_path_equals
+    jnc .ok
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_dev_slash_end - linux_path_dev_slash
+    mov edi, linux_path_dev_slash
+    call user_path_equals
+    jnc .ok
+%endif
 
     stc
     jmp .done
@@ -25821,6 +26336,251 @@ linux_path_is_dev_null:
     pop ebx
     pop eax
     ret
+
+linux_path_is_dev_zero:
+    push eax
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_dev_zero_end - linux_path_dev_zero
+    mov edi, linux_path_dev_zero
+    call user_path_equals
+
+    pop edi
+    pop ebx
+    pop eax
+    ret
+
+linux_path_is_dev_urandom:
+    push eax
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_dev_urandom_end - linux_path_dev_urandom
+    mov edi, linux_path_dev_urandom
+    call user_path_equals
+
+    pop edi
+    pop ebx
+    pop eax
+    ret
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_path_get_synthetic_file:
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_cmdline_end - linux_path_proc_self_cmdline
+    mov edi, linux_path_proc_self_cmdline
+    call user_path_equals
+    jnc .cmdline
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_status_end - linux_path_proc_self_status
+    mov edi, linux_path_proc_self_status
+    call user_path_equals
+    jnc .status
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_stat_end - linux_path_proc_self_stat
+    mov edi, linux_path_proc_self_stat
+    call user_path_equals
+    jnc .stat
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_maps_end - linux_path_proc_self_maps
+    mov edi, linux_path_proc_self_maps
+    call user_path_equals
+    jnc .maps
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_fd0_end - linux_path_proc_self_fd0
+    mov edi, linux_path_proc_self_fd0
+    call user_path_equals
+    jnc .fd0
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_fd1_end - linux_path_proc_self_fd1
+    mov edi, linux_path_proc_self_fd1
+    call user_path_equals
+    jnc .fd1
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_fd2_end - linux_path_proc_self_fd2
+    mov edi, linux_path_proc_self_fd2
+    call user_path_equals
+    jnc .fd2
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_usr_lib_os_release_end - linux_path_usr_lib_os_release
+    mov edi, linux_path_usr_lib_os_release
+    call user_path_equals
+    jnc .os_release
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_etc_os_release_end - linux_path_etc_os_release
+    mov edi, linux_path_etc_os_release
+    call user_path_equals
+    jnc .os_release
+    stc
+    jmp .done
+
+.cmdline:
+    mov eax, LINUX_SYNTHETIC_FILE_CMDLINE
+    clc
+    jmp .done
+
+.status:
+    mov eax, LINUX_SYNTHETIC_FILE_STATUS
+    clc
+    jmp .done
+
+.stat:
+    mov eax, LINUX_SYNTHETIC_FILE_STAT
+    clc
+    jmp .done
+
+.maps:
+    mov eax, LINUX_SYNTHETIC_FILE_MAPS
+    clc
+    jmp .done
+
+.fd0:
+    mov eax, LINUX_SYNTHETIC_FILE_FD0
+    clc
+    jmp .done
+
+.fd1:
+    mov eax, LINUX_SYNTHETIC_FILE_FD1
+    clc
+    jmp .done
+
+.fd2:
+    mov eax, LINUX_SYNTHETIC_FILE_FD2
+    clc
+    jmp .done
+
+.os_release:
+    mov eax, LINUX_SYNTHETIC_FILE_OS_RELEASE
+    clc
+
+.done:
+    pop edi
+    pop ebx
+    ret
+
+linux_synthetic_file_info:
+    push ebx
+
+    cmp eax, 1
+    jb .fail
+    cmp eax, LINUX_SYNTHETIC_FILE_COUNT
+    ja .fail
+    dec eax
+    mov ebx, eax
+    mov esi, [linux_synthetic_file_data_table + ebx * 4]
+    mov ecx, [linux_synthetic_file_size_table + ebx * 4]
+    clc
+    jmp .done
+
+.fail:
+    xor esi, esi
+    xor ecx, ecx
+    stc
+
+.done:
+    pop ebx
+    ret
+%endif
+
+linux_path_is_proc_self_exe:
+    push eax
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_self_exe_end - linux_path_proc_self_exe
+    mov edi, linux_path_proc_self_exe
+    call user_path_equals
+
+    pop edi
+    pop ebx
+    pop eax
+    ret
+
+linux_find_proc_self_exe_entry:
+    cmp dword [process_exec_path_ptr], 0
+    je .fail
+    cmp dword [process_exec_name83], 0
+    je .fail
+    mov edi, bin_dir_name_83
+    call fat_find_root_entry_any
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    mov edi, [process_exec_name83]
+    call fat_find_subdir_entry
+    ret
+
+.fail:
+    stc
+    ret
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_find_chromium_resource_alias:
+    push eax
+    push ebx
+    push ecx
+    push esi
+
+    xor esi, esi
+
+.loop:
+    cmp esi, LINUX_CHROMIUM_RESOURCE_ALIAS_COUNT
+    jae .fail
+    mov eax, [syscall_ptr_arg]
+    mov ebx, [linux_chromium_resource_alias_len_table + esi * 4]
+    mov edi, [linux_chromium_resource_alias_path_table + esi * 4]
+    call user_path_equals
+    jnc .found
+    inc esi
+    jmp .loop
+
+.found:
+    mov edi, [linux_chromium_resource_alias_name_table + esi * 4]
+    mov ebx, [linux_chromium_resource_alias_dir_table + esi * 4]
+    mov [linux_chromium_resource_dir_ptr], ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+linux_find_chromium_resource_alias_entry:
+    mov [linux_chromium_resource_name_ptr], edi
+    mov edi, [linux_chromium_resource_dir_ptr]
+    call fat_find_root_entry_any
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    mov [fat_parent_dir_cluster], ax
+    mov ax, [fat_parent_dir_cluster]
+    mov edi, [linux_chromium_resource_name_ptr]
+    call fat_find_subdir_entry
+    ret
+
+.fail:
+    stc
+    ret
+%endif
 
 linux_find_library_alias:
     push eax
@@ -26383,7 +27143,70 @@ linux_sys_prlimit64:
     ret
 
 linux_sys_set_robust_list:
+    mov [syscall_ptr_arg], ebx
+    cmp ecx, LINUX_ROBUST_LIST_HEAD_BYTES
+    jne linux_sys_einval
+    cmp ebx, 0
+    je .store
+    mov eax, ebx
+    mov ebx, LINUX_ROBUST_LIST_HEAD_BYTES
+    call user_range_validate
+    jc .einval
+
+.store:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .einval
+    mov eax, [syscall_ptr_arg]
+    mov [esi + PROC_LINUX_ROBUST_LIST_HEAD], eax
+    mov dword [esi + PROC_LINUX_ROBUST_LIST_LEN], LINUX_ROBUST_LIST_HEAD_BYTES
     xor eax, eax
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_sys_get_robust_list:
+    cmp ebx, 0
+    je .pid_ok
+    cmp ebx, [current_pid]
+    jne .esrch
+
+.pid_ok:
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, 4
+    call user_range_validate
+    jc .einval
+    mov eax, [syscall_len_arg]
+    mov ebx, 4
+    call user_range_validate
+    jc .einval
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .esrch
+    mov edi, [syscall_ptr_arg]
+    mov eax, [esi + PROC_LINUX_ROBUST_LIST_HEAD]
+    mov [edi], eax
+    mov edi, [syscall_len_arg]
+    mov eax, [esi + PROC_LINUX_ROBUST_LIST_LEN]
+    cmp eax, 0
+    jne .len_ready
+    mov eax, LINUX_ROBUST_LIST_HEAD_BYTES
+
+.len_ready:
+    mov [edi], eax
+    xor eax, eax
+    ret
+
+.esrch:
+    mov eax, -ERRNO_ESRCH
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
     ret
 
 linux_sys_set_tid_address:
@@ -26393,6 +27216,10 @@ linux_sys_set_tid_address:
     mov ebx, 4
     call user_range_validate
     jc .einval
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .einval
+    mov [esi + PROC_LINUX_SET_TID_ADDR], eax
 
 .return_pid:
     mov eax, [current_pid]
@@ -26403,33 +27230,179 @@ linux_sys_set_tid_address:
     ret
 
 linux_sys_rt_sigaction:
+    mov [syscall_len_arg], ebx
+    mov [linux_fcntl_flags_arg], ecx
     cmp esi, LINUX_RT_SIGSET_BYTES
     jne linux_sys_einval
+    cmp ebx, 1
+    jb linux_sys_einval
+    cmp ebx, LINUX_SIGACTION_SIGNUM_MAX
+    ja linux_sys_einval
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je linux_sys_einval
+    cmp edx, 0
+    je .old_done
+    mov [syscall_ptr_arg], edx
+    mov eax, edx
+    mov ebx, LINUX_RT_SIGACTION_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    xor eax, eax
+    mov ecx, LINUX_RT_SIGACTION_BYTES / 4
+    cld
+    rep stosd
+    mov edi, [syscall_ptr_arg]
+    mov eax, [syscall_len_arg]
+    cmp eax, [esi + PROC_LINUX_SIGACTION_SIGNUM]
+    jne .old_done
+    mov eax, [esi + PROC_LINUX_SIGACTION_HANDLER]
+    mov [edi + LINUX_SIGACTION_HANDLER], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_FLAGS]
+    mov [edi + LINUX_SIGACTION_FLAGS], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_RESTORER]
+    mov [edi + LINUX_SIGACTION_RESTORER], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_MASK_LO]
+    mov [edi + LINUX_SIGACTION_MASK_LO], eax
+    mov eax, [esi + PROC_LINUX_SIGACTION_MASK_HI]
+    mov [edi + LINUX_SIGACTION_MASK_HI], eax
+
+.old_done:
+    cmp dword [linux_fcntl_flags_arg], 0
+    je .ok
+    mov eax, [linux_fcntl_flags_arg]
+    mov [syscall_ptr_arg], eax
+    mov ebx, LINUX_RT_SIGACTION_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    mov eax, [syscall_len_arg]
+    mov [esi + PROC_LINUX_SIGACTION_SIGNUM], eax
+    mov eax, [edi + LINUX_SIGACTION_HANDLER]
+    mov [esi + PROC_LINUX_SIGACTION_HANDLER], eax
+    mov eax, [edi + LINUX_SIGACTION_FLAGS]
+    mov [esi + PROC_LINUX_SIGACTION_FLAGS], eax
+    mov eax, [edi + LINUX_SIGACTION_RESTORER]
+    mov [esi + PROC_LINUX_SIGACTION_RESTORER], eax
+    mov eax, [edi + LINUX_SIGACTION_MASK_LO]
+    mov [esi + PROC_LINUX_SIGACTION_MASK_LO], eax
+    mov eax, [edi + LINUX_SIGACTION_MASK_HI]
+    mov [esi + PROC_LINUX_SIGACTION_MASK_HI], eax
+
+.ok:
     xor eax, eax
     ret
 
-linux_sys_rt_sigprocmask:
-    cmp esi, 0
-    je .ok
-    cmp ecx, 0
-    je .oldset
-    mov eax, ecx
-    mov ebx, esi
-    call user_range_validate
-    jc .einval
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
 
-.oldset:
+linux_sys_rt_sigprocmask:
+    mov [linux_open_flags_arg], ebx
+    cmp esi, LINUX_RT_SIGSET_BYTES
+    jne linux_sys_einval
+    mov edi, [current_process_ptr]
+    cmp edi, 0
+    je linux_sys_einval
     cmp edx, 0
-    je .ok
+    je .oldset_done
+    mov [syscall_len_arg], edx
     mov eax, edx
-    mov ebx, esi
+    mov ebx, LINUX_RT_SIGSET_BYTES
     call user_range_validate
     jc .einval
-    mov edi, edx
-    mov ecx, esi
+    mov esi, [syscall_len_arg]
+    mov eax, [edi + PROC_LINUX_SIGMASK_LO]
+    mov [esi], eax
+    mov eax, [edi + PROC_LINUX_SIGMASK_HI]
+    mov [esi + 4], eax
+
+.oldset_done:
+    cmp ecx, 0
+    je .ok
+    mov eax, [linux_open_flags_arg]
+    cmp eax, LINUX_SIG_BLOCK
+    je .set_valid
+    cmp eax, LINUX_SIG_UNBLOCK
+    je .set_valid
+    cmp eax, LINUX_SIG_SETMASK
+    jne .einval
+
+.set_valid:
+    mov [syscall_ptr_arg], ecx
+    mov eax, ecx
+    mov ebx, LINUX_RT_SIGSET_BYTES
+    call user_range_validate
+    jc .einval
+    mov esi, [syscall_ptr_arg]
+    mov eax, [esi]
+    mov edx, [esi + 4]
+    cmp dword [linux_open_flags_arg], LINUX_SIG_BLOCK
+    je .block
+    cmp dword [linux_open_flags_arg], LINUX_SIG_UNBLOCK
+    je .unblock
+    mov [edi + PROC_LINUX_SIGMASK_LO], eax
+    mov [edi + PROC_LINUX_SIGMASK_HI], edx
+    jmp .ok
+
+.block:
+    or [edi + PROC_LINUX_SIGMASK_LO], eax
+    or [edi + PROC_LINUX_SIGMASK_HI], edx
+    jmp .ok
+
+.unblock:
+    not eax
+    not edx
+    and [edi + PROC_LINUX_SIGMASK_LO], eax
+    and [edi + PROC_LINUX_SIGMASK_HI], edx
+
+.ok:
     xor eax, eax
-    cld
-    rep stosb
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_sys_sigaltstack:
+    mov [syscall_len_arg], ebx
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je linux_sys_einval
+    cmp ecx, 0
+    je .old_done
+    mov [syscall_ptr_arg], ecx
+    mov eax, ecx
+    mov ebx, LINUX_STACK_T_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_SP]
+    mov [edi + LINUX_STACK_T_SP], eax
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_FLAGS]
+    mov [edi + LINUX_STACK_T_FLAGS], eax
+    mov eax, [esi + PROC_LINUX_SIGALTSTACK_SIZE]
+    mov [edi + LINUX_STACK_T_SIZE], eax
+
+.old_done:
+    cmp dword [syscall_len_arg], 0
+    je .ok
+    mov eax, [syscall_len_arg]
+    mov [syscall_ptr_arg], eax
+    mov ebx, LINUX_STACK_T_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    mov eax, [edi + LINUX_STACK_T_FLAGS]
+    and eax, ~LINUX_SS_ALLOWED_MASK
+    jnz .einval
+    mov eax, [edi + LINUX_STACK_T_SP]
+    mov [esi + PROC_LINUX_SIGALTSTACK_SP], eax
+    mov eax, [edi + LINUX_STACK_T_FLAGS]
+    mov [esi + PROC_LINUX_SIGALTSTACK_FLAGS], eax
+    mov eax, [edi + LINUX_STACK_T_SIZE]
+    mov [esi + PROC_LINUX_SIGALTSTACK_SIZE], eax
 
 .ok:
     xor eax, eax
@@ -26440,16 +27413,29 @@ linux_sys_rt_sigprocmask:
     ret
 
 linux_sys_futex:
-    and ecx, LINUX_FUTEX_CMD_MASK
-    cmp ecx, LINUX_FUTEX_WAKE
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, 4
+    call user_range_validate
+    jc .efault
+    mov ebx, [syscall_ptr_arg]
+    mov eax, ecx
+    and eax, LINUX_FUTEX_CMD_MASK
+    cmp eax, LINUX_FUTEX_WAKE
     je .ok
-    cmp ecx, LINUX_FUTEX_WAIT
+    cmp eax, LINUX_FUTEX_WAIT
     jne linux_sys_einval
+    cmp [ebx], edx
+    je .ok
     mov eax, -ERRNO_EAGAIN
     ret
 
 .ok:
     xor eax, eax
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
     ret
 
 linux_sys_sched_getaffinity:
@@ -26497,6 +27483,135 @@ linux_sys_getrandom:
     mov eax, -ERRNO_EINVAL
     ret
 
+linux_dev_zero_read:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .ebadf
+    cmp edx, 0
+    je .zero
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    mov ecx, [syscall_len_arg]
+    xor eax, eax
+    cld
+    rep stosb
+    mov eax, [syscall_len_arg]
+    ret
+
+.zero:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_dev_urandom_read:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .ebadf
+    cmp edx, 0
+    je .zero
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .einval
+    mov edi, [syscall_ptr_arg]
+    mov ecx, [syscall_len_arg]
+    mov edx, [timer_ticks]
+    xor edx, [clock_milliseconds]
+    xor edx, [current_pid]
+    xor edx, [fd_offsets + esi * 4]
+    xor edx, 0x55524e44
+
+.fill:
+    mov eax, edx
+    stosb
+    rol edx, 7
+    add edx, 0x6d2b79f5
+    loop .fill
+    mov eax, [syscall_len_arg]
+    add [fd_offsets + esi * 4], eax
+    ret
+
+.zero:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_synthetic_file_read:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .ebadf
+    cmp edx, 0
+    je .zero
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .einval
+    mov esi, [file_io_fd_slot]
+    mov ebx, esi
+    mov eax, [fd_indices + ebx * 4]
+    call linux_synthetic_file_info
+    jc .ebadf
+    mov edx, [fd_offsets + ebx * 4]
+    cmp edx, ecx
+    jae .zero
+    add esi, edx
+    sub ecx, edx
+    cmp [syscall_len_arg], ecx
+    ja .len_ready
+    mov ecx, [syscall_len_arg]
+
+.len_ready:
+    mov edi, [syscall_ptr_arg]
+    push ecx
+    cld
+    rep movsb
+    pop eax
+    add [fd_offsets + ebx * 4], eax
+    ret
+
+.zero:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+%endif
+
 linux_sys_rseq:
     mov eax, -ERRNO_ENOSYS
     ret
@@ -26504,21 +27619,33 @@ linux_sys_rseq:
 linux_sys_readlink:
     cmp edx, 0
     je .einval
+    mov [linux_readlink_user_ptr], ecx
+    mov [syscall_len_arg], edx
+    mov [syscall_ptr_arg], ebx
+    call linux_path_is_proc_self_exe
+    jnc .self_exe
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_path_get_synthetic_file
+    jc .enoent
+    cmp eax, LINUX_SYNTHETIC_FILE_FD0
+    jb .enoent
+    cmp eax, LINUX_SYNTHETIC_FILE_FD2
+    ja .enoent
+    mov esi, linux_proc_fd_target_text
+    mov ecx, linux_proc_fd_target_text_end - linux_proc_fd_target_text - 1
+    jmp .copy_kernel
+%endif
+    jmp .enoent
+
+.self_exe:
     cmp dword [process_exec_path_ptr], 0
     je .enoent
-    mov eax, ebx
-    mov ebx, linux_path_proc_self_exe_end - linux_path_proc_self_exe
-    mov edi, linux_path_proc_self_exe
-    call user_path_equals
-    jc .enoent
-    mov [syscall_ptr_arg], ecx
-    mov [syscall_len_arg], edx
-    mov eax, ecx
-    mov ebx, edx
+    mov eax, [linux_readlink_user_ptr]
+    mov ebx, [syscall_len_arg]
     call user_range_validate
     jc .einval
     mov esi, [process_exec_path_ptr]
-    mov edi, [syscall_ptr_arg]
+    mov edi, [linux_readlink_user_ptr]
     mov ecx, [syscall_len_arg]
     xor edx, edx
 
@@ -26534,6 +27661,25 @@ linux_sys_readlink:
     jmp .copy
 
 .done:
+    mov eax, edx
+    ret
+
+.copy_kernel:
+    mov [linux_readlink_source_len], ecx
+    mov eax, [linux_readlink_user_ptr]
+    mov ebx, [syscall_len_arg]
+    call user_range_validate
+    jc .einval
+    mov edi, [linux_readlink_user_ptr]
+    mov edx, [linux_readlink_source_len]
+    cmp [syscall_len_arg], edx
+    jae .copy_kernel_ready
+    mov edx, [syscall_len_arg]
+
+.copy_kernel_ready:
+    mov ecx, edx
+    cld
+    rep movsb
     mov eax, edx
     ret
 
@@ -27248,12 +28394,1348 @@ linux_sys_pipe_common:
     pop ebx
     ret
 
+linux_sys_poll:
+    call linux_sys_poll_common
+    ret
+
+linux_sys_ppoll:
+    cmp edx, 0
+    je .sigmask
+    mov eax, edx
+    mov ebx, LINUX_TIMESPEC_BYTES
+    call user_range_validate
+    jc .efault
+
+.sigmask:
+    cmp esi, 0
+    je .poll
+    mov eax, esi
+    mov ebx, edi
+    call user_range_validate
+    jc .efault
+
+.poll:
+    call linux_sys_poll_common
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+linux_sys_poll_common:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [linux_pollfds_arg], ebx
+    mov [linux_poll_nfds_arg], ecx
+    cmp ecx, LINUX_POLL_MAX_NFDS
+    ja .einval
+    cmp ecx, 0
+    je .zero
+    mov eax, ecx
+    shl eax, 3
+    mov ebx, eax
+    mov eax, [linux_pollfds_arg]
+    call user_range_validate
+    jc .efault
+
+    mov dword [linux_poll_ready_count], 0
+    mov dword [linux_poll_index], 0
+
+.loop:
+    mov eax, [linux_poll_index]
+    cmp eax, [linux_poll_nfds_arg]
+    jae .done_count
+    mov edi, [linux_pollfds_arg]
+    mov edx, eax
+    shl edx, 3
+    add edi, edx
+    mov word [edi + 6], 0
+    mov ebx, [edi]
+    test ebx, ebx
+    js .next
+    movzx ecx, word [edi + 4]
+    call linux_pollfd_revents
+    mov [edi + 6], ax
+    test ax, ax
+    jz .next
+    inc dword [linux_poll_ready_count]
+
+.next:
+    inc dword [linux_poll_index]
+    jmp .loop
+
+.done_count:
+    mov eax, [linux_poll_ready_count]
+    jmp .done
+
+.zero:
+    xor eax, eax
+    jmp .done
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_select:
+    cmp edi, 0
+    je .common
+    mov eax, edi
+    mov ebx, LINUX_TIMEVAL_BYTES
+    call user_range_validate
+    jc .efault
+
+.common:
+    call linux_sys_select_common
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+linux_sys_pselect6:
+    cmp edi, 0
+    je .sigmask
+    mov eax, edi
+    mov ebx, LINUX_TIMESPEC_BYTES
+    call user_range_validate
+    jc .efault
+
+.sigmask:
+    cmp ebp, 0
+    je .common
+    mov eax, ebp
+    mov ebx, LINUX_PSELECT6_SIGMASK_BYTES
+    call user_range_validate
+    jc .efault
+    mov eax, [ebp]
+    cmp eax, 0
+    je .common
+    mov ebx, [ebp + 4]
+    call user_range_validate
+    jc .efault
+
+.common:
+    call linux_sys_select_common
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+linux_sys_select_common:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [linux_select_nfds_arg], ebx
+    mov [linux_select_readfds_arg], ecx
+    mov [linux_select_writefds_arg], edx
+    mov [linux_select_exceptfds_arg], esi
+    test ebx, ebx
+    js .einval
+    cmp ebx, LINUX_SELECT_MAX_NFDS
+    ja .einval
+    mov eax, ebx
+    add eax, 31
+    shr eax, 5
+    shl eax, 2
+    mov [linux_select_fdset_bytes], eax
+    call linux_select_validate_fdsets
+    test eax, eax
+    js .done
+
+    mov dword [linux_select_ready_count], 0
+    call linux_select_process_readfds
+    test eax, eax
+    js .done
+    call linux_select_process_writefds
+    test eax, eax
+    js .done
+    call linux_select_process_exceptfds
+    test eax, eax
+    js .done
+    mov eax, [linux_select_ready_count]
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_select_validate_fdsets:
+    mov ebx, [linux_select_fdset_bytes]
+    cmp dword [linux_select_readfds_arg], 0
+    je .writefds
+    mov eax, [linux_select_readfds_arg]
+    call user_range_validate
+    jc .efault
+
+.writefds:
+    cmp dword [linux_select_writefds_arg], 0
+    je .exceptfds
+    mov eax, [linux_select_writefds_arg]
+    mov ebx, [linux_select_fdset_bytes]
+    call user_range_validate
+    jc .efault
+
+.exceptfds:
+    cmp dword [linux_select_exceptfds_arg], 0
+    je .ok
+    mov eax, [linux_select_exceptfds_arg]
+    mov ebx, [linux_select_fdset_bytes]
+    call user_range_validate
+    jc .efault
+
+.ok:
+    xor eax, eax
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+linux_select_process_readfds:
+    mov esi, [linux_select_readfds_arg]
+    cmp esi, 0
+    je .ok
+    xor edi, edi
+
+.loop:
+    cmp edi, [linux_select_nfds_arg]
+    jae .ok
+    call linux_select_test_current_bit
+    jz .next
+    mov [linux_select_fd_index], edi
+    mov [linux_select_bit_mask], ebx
+    mov ebx, edi
+    call linux_fd_read_ready
+    jc .ebadf
+    test eax, eax
+    jnz .ready
+    call linux_select_clear_saved_bit
+    jmp .next_restore
+
+.ready:
+    inc dword [linux_select_ready_count]
+
+.next_restore:
+    mov edi, [linux_select_fd_index]
+
+.next:
+    inc edi
+    jmp .loop
+
+.ok:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+linux_select_process_writefds:
+    mov esi, [linux_select_writefds_arg]
+    cmp esi, 0
+    je .ok
+    xor edi, edi
+
+.loop:
+    cmp edi, [linux_select_nfds_arg]
+    jae .ok
+    call linux_select_test_current_bit
+    jz .next
+    mov [linux_select_fd_index], edi
+    mov [linux_select_bit_mask], ebx
+    mov ebx, edi
+    call linux_fd_write_ready
+    jc .ebadf
+    test eax, eax
+    jnz .ready
+    call linux_select_clear_saved_bit
+    jmp .next_restore
+
+.ready:
+    inc dword [linux_select_ready_count]
+
+.next_restore:
+    mov edi, [linux_select_fd_index]
+
+.next:
+    inc edi
+    jmp .loop
+
+.ok:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+linux_select_process_exceptfds:
+    mov esi, [linux_select_exceptfds_arg]
+    cmp esi, 0
+    je .ok
+    xor edi, edi
+
+.loop:
+    cmp edi, [linux_select_nfds_arg]
+    jae .ok
+    call linux_select_test_current_bit
+    jz .next
+    mov [linux_select_fd_index], edi
+    mov [linux_select_bit_mask], ebx
+    mov ebx, edi
+    call linux_fd_is_open
+    jc .ebadf
+    call linux_select_clear_saved_bit
+    mov edi, [linux_select_fd_index]
+
+.next:
+    inc edi
+    jmp .loop
+
+.ok:
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+linux_select_test_current_bit:
+    mov edx, edi
+    shr edx, 5
+    mov eax, [esi + edx * 4]
+    mov ecx, edi
+    and ecx, 31
+    mov ebx, 1
+    shl ebx, cl
+    test eax, ebx
+    ret
+
+linux_select_clear_saved_bit:
+    push ebx
+    push edx
+    mov edi, [linux_select_fd_index]
+    mov edx, edi
+    shr edx, 5
+    mov ebx, [linux_select_bit_mask]
+    not ebx
+    and [esi + edx * 4], ebx
+    pop edx
+    pop ebx
+    ret
+
+linux_pollfd_revents:
+    push ebx
+    push ecx
+    push edx
+
+    xor edx, edx
+    test ecx, LINUX_POLLIN
+    jz .write
+    call linux_fd_read_ready
+    jc .nval
+    test eax, eax
+    jz .write
+    or edx, LINUX_POLLIN
+
+.write:
+    test ecx, LINUX_POLLOUT
+    jz .done
+    call linux_fd_write_ready
+    jc .nval
+    test eax, eax
+    jz .done
+    or edx, LINUX_POLLOUT
+    jmp .done
+
+.nval:
+    mov edx, LINUX_POLLNVAL
+
+.done:
+    mov eax, edx
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_fd_is_open:
+    cmp ebx, 1
+    je .ok
+    cmp ebx, 2
+    je .ok
+    call fd_lookup
+    ret
+
+.ok:
+    clc
+    ret
+
+linux_fd_read_ready:
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    cmp ebx, 1
+    je .not_ready
+    cmp ebx, 2
+    je .not_ready
+    call fd_lookup
+    jc .badfd
+    mov esi, eax
+    call linux_fd_root_read_ready
+    clc
+    jmp .done
+
+.not_ready:
+    xor eax, eax
+    clc
+    jmp .done
+
+.badfd:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_fd_write_ready:
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    cmp ebx, 1
+    je .stdio
+    cmp ebx, 2
+    je .stdio
+    call fd_lookup
+    jc .badfd
+    mov esi, eax
+    call linux_fd_root_write_ready
+    clc
+    jmp .done
+
+.stdio:
+    mov eax, 1
+    clc
+    jmp .done
+
+.badfd:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_fd_root_read_ready:
+    cmp byte [fd_kinds + esi], FD_KIND_PRIMARY_ASSET
+    je .ready
+    cmp byte [fd_kinds + esi], FD_KIND_READONLY_FILE
+    je .ready
+    cmp byte [fd_kinds + esi], FD_KIND_DIRECTORY
+    je .ready
+    cmp byte [fd_kinds + esi], FD_KIND_DEV_NULL
+    je .dev_null
+    cmp byte [fd_kinds + esi], FD_KIND_WRITABLE
+    je .writable_file
+    cmp byte [fd_kinds + esi], FD_KIND_PIPE_READ
+    je .pipe_read
+    xor eax, eax
+    ret
+
+.dev_null:
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .not_ready
+    jmp .ready
+
+.writable_file:
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .not_ready
+    jmp .ready
+
+.pipe_read:
+    mov edx, [fd_indices + esi * 4]
+    cmp edx, PIPE_SLOT_COUNT
+    jae .not_ready
+    cmp byte [pipe_status + edx], 1
+    jne .not_ready
+    cmp byte [pipe_read_open + edx], 1
+    jne .not_ready
+    cmp dword [pipe_lengths + edx * 4], 0
+    jne .ready
+    cmp byte [pipe_write_open + edx], 0
+    je .ready
+    jmp .not_ready
+
+.ready:
+    mov eax, 1
+    ret
+
+.not_ready:
+    xor eax, eax
+    ret
+
+linux_fd_root_write_ready:
+    cmp byte [fd_kinds + esi], FD_KIND_WRITABLE
+    je .writable_file
+    cmp byte [fd_kinds + esi], FD_KIND_DEV_NULL
+    je .dev_null
+    cmp byte [fd_kinds + esi], FD_KIND_PIPE_WRITE
+    je .pipe_write
+    xor eax, eax
+    ret
+
+.dev_null:
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .ready
+    cmp eax, O_RDWR
+    je .ready
+    jmp .not_ready
+
+.writable_file:
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .ready
+    cmp eax, O_RDWR
+    je .ready
+    jmp .not_ready
+
+.pipe_write:
+    mov edx, [fd_indices + esi * 4]
+    cmp edx, PIPE_SLOT_COUNT
+    jae .not_ready
+    cmp byte [pipe_status + edx], 1
+    jne .not_ready
+    cmp byte [pipe_write_open + edx], 1
+    jne .not_ready
+    cmp byte [pipe_read_open + edx], 1
+    jne .not_ready
+    mov eax, [pipe_lengths + edx * 4]
+    cmp eax, PIPE_BUFFER_BYTES
+    jae .not_ready
+
+.ready:
+    mov eax, 1
+    ret
+
+.not_ready:
+    xor eax, eax
+    ret
+
+linux_sys_eventfd2:
+    push ebx
+    push ecx
+    push edx
+
+    mov [eventfd_init_low_arg], ebx
+    mov [eventfd_flags_arg], ecx
+    test ecx, LINUX_EFD_SEMAPHORE
+    jnz .einval
+    mov eax, ecx
+    and eax, LINUX_EFD_KNOWN_MASK
+    cmp eax, ecx
+    jne .einval
+    xor ebx, ebx
+
+.find_slot:
+    cmp ebx, EVENTFD_SLOT_COUNT
+    jae .emfile
+    cmp byte [eventfd_status + ebx], 0
+    je .slot_found
+    inc ebx
+    jmp .find_slot
+
+.slot_found:
+    mov [eventfd_alloc_slot], ebx
+    mov dword [syscall_open_flags], 0
+    test dword [eventfd_flags_arg], LINUX_EFD_CLOEXEC
+    jz .alloc_fd
+    mov dword [syscall_open_flags], O_CLOEXEC
+
+.alloc_fd:
+    call fd_alloc
+    jc .emfile
+    mov edx, [eventfd_alloc_slot]
+    mov byte [eventfd_status + edx], 1
+    mov ebx, [eventfd_init_low_arg]
+    mov [eventfd_counter_low + edx * 4], ebx
+    mov dword [eventfd_counter_high + edx * 4], 0
+    mov byte [fd_kinds + eax], FD_KIND_EVENTFD
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    xor edx, edx
+    test dword [eventfd_flags_arg], LINUX_EFD_NONBLOCK
+    jz .flags_ready
+    or edx, O_NONBLOCK
+
+.flags_ready:
+    mov [fd_flags + eax * 4], edx
+    add eax, USER_FD_BASE
+    jmp .done
+
+.emfile:
+    mov eax, -ERRNO_EMFILE
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_epoll_create:
+    cmp ebx, 1
+    jl .einval
+    xor ebx, ebx
+    jmp linux_sys_epoll_create_common
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_sys_epoll_create1:
+    mov eax, ebx
+    and eax, ~LINUX_EPOLL_CLOEXEC
+    jnz .einval
+    jmp linux_sys_epoll_create_common
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_sys_epoll_create_common:
+    push ebx
+    push ecx
+    push edx
+
+    mov [epoll_flags_arg], ebx
+    xor ebx, ebx
+
+.find_slot:
+    cmp ebx, EPOLL_SLOT_COUNT
+    jae .emfile
+    cmp byte [epoll_status + ebx], 0
+    je .slot_found
+    inc ebx
+    jmp .find_slot
+
+.slot_found:
+    mov [epoll_alloc_slot], ebx
+    mov dword [syscall_open_flags], 0
+    test dword [epoll_flags_arg], LINUX_EPOLL_CLOEXEC
+    jz .alloc_fd
+    mov dword [syscall_open_flags], O_CLOEXEC
+
+.alloc_fd:
+    call fd_alloc
+    jc .emfile
+    mov edx, [epoll_alloc_slot]
+    mov byte [epoll_status + edx], 1
+    mov byte [fd_kinds + eax], FD_KIND_EPOLL
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_flags + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    add eax, USER_FD_BASE
+    jmp .done
+
+.emfile:
+    mov eax, -ERRNO_EMFILE
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_epoll_ctl:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [epoll_epfd_arg], ebx
+    mov [epoll_op_arg], ecx
+    mov [epoll_target_fd_arg], edx
+    mov [epoll_event_ptr_arg], esi
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_EPOLL
+    jne .einval
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, EPOLL_SLOT_COUNT
+    jae .einval
+    cmp byte [epoll_status + eax], 1
+    jne .einval
+    mov [epoll_slot_arg], eax
+
+    mov ebx, [epoll_target_fd_arg]
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_EPOLL
+    je .einval
+
+    mov ecx, [epoll_op_arg]
+    cmp ecx, LINUX_EPOLL_CTL_DEL
+    je .delete
+    mov eax, [epoll_event_ptr_arg]
+    mov ebx, EPOLL_EVENT_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, eax
+    mov eax, [edi]
+    mov [epoll_event_events_arg], eax
+    mov eax, [edi + 4]
+    mov [epoll_event_data_low_arg], eax
+    mov eax, [edi + 8]
+    mov [epoll_event_data_high_arg], eax
+    cmp ecx, LINUX_EPOLL_CTL_ADD
+    je .add
+    cmp ecx, LINUX_EPOLL_CTL_MOD
+    je .mod
+    jmp .einval
+
+.add:
+    call epoll_find_entry
+    jnc .einval
+    call epoll_find_free_entry
+    jc .enomem
+    call epoll_store_entry
+    xor eax, eax
+    jmp .done
+
+.mod:
+    call epoll_find_entry
+    jc .enoent
+    call epoll_store_entry
+    xor eax, eax
+    jmp .done
+
+.delete:
+    cmp ecx, LINUX_EPOLL_CTL_DEL
+    jne .einval
+    call epoll_find_entry
+    jc .enoent
+    mov byte [epoll_entry_status + eax], 0
+    mov dword [epoll_entry_fd + eax * 4], 0
+    mov dword [epoll_entry_events + eax * 4], 0
+    mov dword [epoll_entry_data_low + eax * 4], 0
+    mov dword [epoll_entry_data_high + eax * 4], 0
+    xor eax, eax
+    jmp .done
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    jmp .done
+
+.enoent:
+    mov eax, -ERRNO_ENOENT
+    jmp .done
+
+.enomem:
+    mov eax, -ERRNO_ENOMEM
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+epoll_find_entry:
+    push ebx
+    push ecx
+    push edx
+
+    mov ebx, [epoll_slot_arg]
+    mov edx, [epoll_target_fd_arg]
+    mov ecx, EPOLL_ENTRY_COUNT
+    xor eax, eax
+
+.loop:
+    cmp byte [epoll_entry_status + eax], 1
+    jne .next
+    cmp [epoll_entry_owner + eax * 4], ebx
+    jne .next
+    cmp [epoll_entry_fd + eax * 4], edx
+    je .found
+
+.next:
+    inc eax
+    loop .loop
+    stc
+    jmp .done
+
+.found:
+    clc
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+epoll_find_free_entry:
+    push ecx
+
+    mov ecx, EPOLL_ENTRY_COUNT
+    xor eax, eax
+
+.loop:
+    cmp byte [epoll_entry_status + eax], 0
+    je .found
+    inc eax
+    loop .loop
+    stc
+    jmp .done
+
+.found:
+    clc
+
+.done:
+    pop ecx
+    ret
+
+epoll_store_entry:
+    push ebx
+    push edx
+
+    mov byte [epoll_entry_status + eax], 1
+    mov ebx, [epoll_slot_arg]
+    mov [epoll_entry_owner + eax * 4], ebx
+    mov ebx, [epoll_target_fd_arg]
+    mov [epoll_entry_fd + eax * 4], ebx
+    mov edx, [epoll_event_events_arg]
+    mov [epoll_entry_events + eax * 4], edx
+    mov edx, [epoll_event_data_low_arg]
+    mov [epoll_entry_data_low + eax * 4], edx
+    mov edx, [epoll_event_data_high_arg]
+    mov [epoll_entry_data_high + eax * 4], edx
+
+    pop edx
+    pop ebx
+    ret
+
+linux_sys_epoll_wait:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [epoll_epfd_arg], ebx
+    mov [epoll_wait_events_ptr], ecx
+    mov [epoll_wait_maxevents], edx
+    cmp edx, 1
+    jl .einval
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_EPOLL
+    jne .einval
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, EPOLL_SLOT_COUNT
+    jae .einval
+    cmp byte [epoll_status + eax], 1
+    jne .einval
+    mov [epoll_slot_arg], eax
+    mov eax, [epoll_wait_maxevents]
+    mov ebx, EPOLL_EVENT_BYTES
+    mul ebx
+    jc .einval
+    mov ebx, eax
+    mov eax, [epoll_wait_events_ptr]
+    call user_range_validate
+    jc .einval
+    mov dword [epoll_wait_ready_count], 0
+    mov dword [epoll_scan_index], 0
+
+.scan:
+    mov eax, [epoll_scan_index]
+    cmp eax, EPOLL_ENTRY_COUNT
+    jae .return_count
+    mov ebx, [epoll_wait_ready_count]
+    cmp ebx, [epoll_wait_maxevents]
+    jae .return_count
+    cmp byte [epoll_entry_status + eax], 1
+    jne .next
+    mov ebx, [epoll_slot_arg]
+    cmp [epoll_entry_owner + eax * 4], ebx
+    jne .next
+    call epoll_entry_ready_events
+    cmp eax, 0
+    je .next
+    mov [epoll_ready_events_arg], eax
+    mov edi, [epoll_wait_events_ptr]
+    mov ebx, [epoll_wait_ready_count]
+    imul ebx, EPOLL_EVENT_BYTES
+    add edi, ebx
+    mov eax, [epoll_ready_events_arg]
+    mov [edi], eax
+    mov eax, [epoll_scan_index]
+    mov eax, [epoll_entry_data_low + eax * 4]
+    mov [edi + 4], eax
+    mov eax, [epoll_scan_index]
+    mov eax, [epoll_entry_data_high + eax * 4]
+    mov [edi + 8], eax
+    inc dword [epoll_wait_ready_count]
+
+.next:
+    inc dword [epoll_scan_index]
+    jmp .scan
+
+.return_count:
+    mov eax, [epoll_wait_ready_count]
+    jmp .done
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+epoll_entry_ready_events:
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    mov esi, eax
+    mov ebx, [epoll_entry_fd + esi * 4]
+    call fd_lookup
+    jc .none
+    mov ecx, [epoll_entry_events + esi * 4]
+    xor edx, edx
+    test ecx, LINUX_EPOLLIN
+    jz .check_out
+    call fd_slot_read_ready
+    jc .check_out
+    or edx, LINUX_EPOLLIN
+
+.check_out:
+    test ecx, LINUX_EPOLLOUT
+    jz .done_ready
+    call fd_slot_write_ready
+    jc .done_ready
+    or edx, LINUX_EPOLLOUT
+
+.done_ready:
+    mov eax, edx
+    jmp .done
+
+.none:
+    xor eax, eax
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fd_slot_read_ready:
+    cmp byte [fd_kinds + eax], FD_KIND_EVENTFD
+    je .eventfd
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    je .timerfd
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_READ
+    je .pipe
+    cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    je .ready
+    cmp byte [fd_kinds + eax], FD_KIND_PRIMARY_ASSET
+    je .ready
+    cmp byte [fd_kinds + eax], FD_KIND_WRITABLE
+    je .ready
+    stc
+    ret
+
+.eventfd:
+    mov ebx, [fd_indices + eax * 4]
+    cmp ebx, EVENTFD_SLOT_COUNT
+    jae .not_ready
+    mov ecx, [eventfd_counter_low + ebx * 4]
+    or ecx, [eventfd_counter_high + ebx * 4]
+    jz .not_ready
+    clc
+    ret
+
+.timerfd:
+    mov ebx, [fd_indices + eax * 4]
+    cmp ebx, TIMERFD_SLOT_COUNT
+    jae .not_ready
+    mov ecx, [timerfd_expirations_low + ebx * 4]
+    or ecx, [timerfd_expirations_high + ebx * 4]
+    jz .not_ready
+    clc
+    ret
+
+.pipe:
+    mov ebx, [fd_indices + eax * 4]
+    cmp ebx, PIPE_SLOT_COUNT
+    jae .not_ready
+    cmp dword [pipe_lengths + ebx * 4], 0
+    je .not_ready
+
+.ready:
+    clc
+    ret
+
+.not_ready:
+    stc
+    ret
+
+fd_slot_write_ready:
+    cmp byte [fd_kinds + eax], FD_KIND_EVENTFD
+    je .ready
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    je .not_ready
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
+    je .pipe
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    je .ready
+    cmp byte [fd_kinds + eax], FD_KIND_WRITABLE
+    je .ready
+    stc
+    ret
+
+.pipe:
+    mov ebx, [fd_indices + eax * 4]
+    cmp ebx, PIPE_SLOT_COUNT
+    jae .not_ready
+    cmp dword [pipe_lengths + ebx * 4], PIPE_BUFFER_BYTES
+    jae .not_ready
+
+.ready:
+    clc
+    ret
+
+.not_ready:
+    stc
+    ret
+
+linux_sys_timerfd_create:
+    push ebx
+    push ecx
+    push edx
+
+    mov [timerfd_clock_arg], ebx
+    mov [timerfd_flags_arg], ecx
+    cmp ebx, LINUX_CLOCK_REALTIME_ID
+    je .clock_ok
+    cmp ebx, CLOCK_MONOTONIC_ID
+    je .clock_ok
+    cmp ebx, LINUX_CLOCK_BOOTTIME_ID
+    jne .einval
+
+.clock_ok:
+    mov eax, ecx
+    and eax, LINUX_TFD_CREATE_KNOWN_MASK
+    cmp eax, ecx
+    jne .einval
+    xor ebx, ebx
+
+.find_slot:
+    cmp ebx, TIMERFD_SLOT_COUNT
+    jae .emfile
+    cmp byte [timerfd_status + ebx], 0
+    je .slot_found
+    inc ebx
+    jmp .find_slot
+
+.slot_found:
+    mov [timerfd_alloc_slot], ebx
+    mov dword [syscall_open_flags], 0
+    test dword [timerfd_flags_arg], LINUX_TFD_CLOEXEC
+    jz .alloc_fd
+    mov dword [syscall_open_flags], O_CLOEXEC
+
+.alloc_fd:
+    call fd_alloc
+    jc .emfile
+    mov edx, [timerfd_alloc_slot]
+    mov byte [timerfd_status + edx], 1
+    mov ebx, [timerfd_clock_arg]
+    mov [timerfd_clockid + edx * 4], ebx
+    mov dword [timerfd_expirations_low + edx * 4], 0
+    mov dword [timerfd_expirations_high + edx * 4], 0
+    mov byte [fd_kinds + eax], FD_KIND_TIMERFD
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    xor edx, edx
+    test dword [timerfd_flags_arg], LINUX_TFD_NONBLOCK
+    jz .flags_ready
+    or edx, O_NONBLOCK
+
+.flags_ready:
+    mov [fd_flags + eax * 4], edx
+    add eax, USER_FD_BASE
+    jmp .done
+
+.emfile:
+    mov eax, -ERRNO_EMFILE
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_timerfd_settime:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [timerfd_fd_arg], ebx
+    mov [timerfd_flags_arg], ecx
+    mov [timerfd_new_ptr_arg], edx
+    mov [timerfd_old_ptr_arg], esi
+    mov eax, ecx
+    and eax, LINUX_TFD_SETTIME_KNOWN_MASK
+    cmp eax, ecx
+    jne .einval
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    jne .einval
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, TIMERFD_SLOT_COUNT
+    jae .einval
+    cmp byte [timerfd_status + eax], 1
+    jne .einval
+    mov [timerfd_slot_arg], eax
+    cmp dword [timerfd_old_ptr_arg], 0
+    je .old_done
+    mov eax, [timerfd_old_ptr_arg]
+    mov ebx, LINUX_ITIMERSPEC_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, eax
+    mov ecx, LINUX_ITIMERSPEC_BYTES / 4
+    xor eax, eax
+    cld
+    rep stosd
+
+.old_done:
+    cmp dword [timerfd_new_ptr_arg], 0
+    je .clear_timer
+    mov eax, [timerfd_new_ptr_arg]
+    mov ebx, LINUX_ITIMERSPEC_BYTES
+    call user_range_validate
+    jc .einval
+    mov esi, eax
+    mov eax, [esi + LINUX_ITIMERSPEC_VALUE_SEC]
+    or eax, [esi + LINUX_ITIMERSPEC_VALUE_NSEC]
+    jz .clear_timer
+    mov ebx, [timerfd_slot_arg]
+    mov dword [timerfd_expirations_low + ebx * 4], 1
+    mov dword [timerfd_expirations_high + ebx * 4], 0
+    xor eax, eax
+    jmp .done
+
+.clear_timer:
+    mov ebx, [timerfd_slot_arg]
+    mov dword [timerfd_expirations_low + ebx * 4], 0
+    mov dword [timerfd_expirations_high + ebx * 4], 0
+    xor eax, eax
+    jmp .done
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_timerfd_gettime:
+    push ebx
+    push ecx
+    push edi
+
+    mov [timerfd_fd_arg], ebx
+    mov [timerfd_old_ptr_arg], ecx
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    jne .einval
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, TIMERFD_SLOT_COUNT
+    jae .einval
+    cmp byte [timerfd_status + eax], 1
+    jne .einval
+    mov eax, [timerfd_old_ptr_arg]
+    mov ebx, LINUX_ITIMERSPEC_BYTES
+    call user_range_validate
+    jc .einval
+    mov edi, eax
+    mov ecx, LINUX_ITIMERSPEC_BYTES / 4
+    xor eax, eax
+    cld
+    rep stosd
+    xor eax, eax
+    jmp .done
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    jmp .done
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    ret
+
 linux_sys_gettid:
     mov eax, [current_pid]
     ret
 
+linux_sys_getppid:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .zero
+    mov eax, [esi + PROC_PARENT_PID]
+    cmp eax, 0xffffffff
+    jne .done
+
+.zero:
+    xor eax, eax
+
+.done:
+    ret
+
+linux_sys_get_identity_zero:
+    xor eax, eax
+    ret
+
+linux_sys_getpgid:
+    cmp ebx, 0
+    je .current
+    cmp ebx, [current_pid]
+    jne .esrch
+
+.current:
+    mov eax, [current_pid]
+    ret
+
+.esrch:
+    mov eax, -ERRNO_ESRCH
+    ret
+
+linux_sys_setpgid:
+    cmp ebx, 0
+    je .pid_ok
+    cmp ebx, [current_pid]
+    jne .esrch
+
+.pid_ok:
+    cmp ecx, 0
+    je .ok
+    cmp ecx, [current_pid]
+    jne .eperm
+
+.ok:
+    xor eax, eax
+    ret
+
+.esrch:
+    mov eax, -ERRNO_ESRCH
+    ret
+
+.eperm:
+    mov eax, -ERRNO_EPERM
+    ret
+
 linux_sys_setsid:
     mov eax, [current_pid]
+    ret
+
+linux_sys_getsid:
+    cmp ebx, 0
+    je .current
+    cmp ebx, [current_pid]
+    jne .esrch
+
+.current:
+    mov eax, [current_pid]
+    ret
+
+.esrch:
+    mov eax, -ERRNO_ESRCH
     ret
 
 linux_sys_socketcall:
@@ -27557,6 +30039,189 @@ pipe_write:
     pop ebx
     ret
 
+eventfd_read:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [eventfd_io_fd_slot], eax
+    mov [eventfd_io_user_ptr], ecx
+    cmp edx, 8
+    jb .fail_inval
+    mov eax, ecx
+    mov ebx, 8
+    call user_range_validate
+    jc .fail_inval
+    mov esi, [eventfd_io_fd_slot]
+    mov ebx, [fd_indices + esi * 4]
+    cmp ebx, EVENTFD_SLOT_COUNT
+    jae .fail_badfd
+    cmp byte [eventfd_status + ebx], 1
+    jne .fail_badfd
+    mov eax, [eventfd_counter_low + ebx * 4]
+    mov edx, [eventfd_counter_high + ebx * 4]
+    or eax, edx
+    jz .fail_again
+    mov edi, [eventfd_io_user_ptr]
+    mov eax, [eventfd_counter_low + ebx * 4]
+    mov [edi], eax
+    mov eax, [eventfd_counter_high + ebx * 4]
+    mov [edi + 4], eax
+    mov dword [eventfd_counter_low + ebx * 4], 0
+    mov dword [eventfd_counter_high + ebx * 4], 0
+    mov eax, 8
+    clc
+    jmp .done
+
+.fail_again:
+    mov eax, -ERRNO_EAGAIN
+    stc
+    jmp .done
+
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    jmp .done
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+eventfd_write:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [eventfd_io_fd_slot], eax
+    mov [eventfd_io_user_ptr], ecx
+    cmp edx, 8
+    jb .fail_inval
+    mov eax, ecx
+    mov ebx, 8
+    call user_range_validate
+    jc .fail_inval
+    mov esi, [eventfd_io_fd_slot]
+    mov ebx, [fd_indices + esi * 4]
+    cmp ebx, EVENTFD_SLOT_COUNT
+    jae .fail_badfd
+    cmp byte [eventfd_status + ebx], 1
+    jne .fail_badfd
+    mov esi, [eventfd_io_user_ptr]
+    mov eax, [esi]
+    mov edx, [esi + 4]
+    cmp eax, 0xffffffff
+    jne .value_ok
+    cmp edx, 0xffffffff
+    je .fail_inval
+
+.value_ok:
+    add [eventfd_counter_low + ebx * 4], eax
+    adc [eventfd_counter_high + ebx * 4], edx
+    jc .overflow
+    cmp dword [eventfd_counter_low + ebx * 4], 0xffffffff
+    jne .ok
+    cmp dword [eventfd_counter_high + ebx * 4], 0xffffffff
+    jne .ok
+
+.overflow:
+    sub [eventfd_counter_low + ebx * 4], eax
+    sbb [eventfd_counter_high + ebx * 4], edx
+    mov eax, -ERRNO_EAGAIN
+    stc
+    jmp .done
+
+.ok:
+    mov eax, 8
+    clc
+    jmp .done
+
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    jmp .done
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+timerfd_read:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [timerfd_io_fd_slot], eax
+    mov [timerfd_io_user_ptr], ecx
+    cmp edx, 8
+    jb .fail_inval
+    mov eax, ecx
+    mov ebx, 8
+    call user_range_validate
+    jc .fail_inval
+    mov esi, [timerfd_io_fd_slot]
+    mov ebx, [fd_indices + esi * 4]
+    cmp ebx, TIMERFD_SLOT_COUNT
+    jae .fail_badfd
+    cmp byte [timerfd_status + ebx], 1
+    jne .fail_badfd
+    mov eax, [timerfd_expirations_low + ebx * 4]
+    mov edx, [timerfd_expirations_high + ebx * 4]
+    or eax, edx
+    jz .fail_again
+    mov edi, [timerfd_io_user_ptr]
+    mov eax, [timerfd_expirations_low + ebx * 4]
+    mov [edi], eax
+    mov eax, [timerfd_expirations_high + ebx * 4]
+    mov [edi + 4], eax
+    mov dword [timerfd_expirations_low + ebx * 4], 0
+    mov dword [timerfd_expirations_high + ebx * 4], 0
+    mov eax, 8
+    clc
+    jmp .done
+
+.fail_again:
+    mov eax, -ERRNO_EAGAIN
+    stc
+    jmp .done
+
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    jmp .done
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 linux_stat64_fill_user:
     push eax
     push ebx
@@ -27656,8 +30321,22 @@ linux_stat_path_common:
     mov dword [stat_inode_arg], 1
     call linux_path_is_dev_null
     jnc .dev_null
+    call linux_path_is_dev_zero
+    jnc .dev_zero
+    call linux_path_is_dev_urandom
+    jnc .dev_urandom
+    call linux_path_is_proc_self_exe
+    jnc .proc_self_exe
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_path_get_synthetic_file
+    jnc .synthetic_file
+%endif
     call linux_path_is_synthetic_lib_dir
     jnc .synthetic_dir
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_find_chromium_resource_alias
+    jnc .chromium_resource_file
+%endif
     call linux_find_library_alias
     jnc .alias_file
     call fat_user_path_is_root
@@ -27711,6 +30390,52 @@ linux_stat_path_common:
     xor eax, eax
     mov edx, STAT_MODE_STDIO_CHR
     jmp .found
+
+.dev_zero:
+    mov dword [stat_inode_arg], 5
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
+    jmp .found
+
+.dev_urandom:
+    mov dword [stat_inode_arg], 6
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
+    jmp .found
+
+.proc_self_exe:
+    call linux_find_proc_self_exe_entry
+    jc .enoent
+    movzx eax, word [fat_found_first_cluster]
+    mov [stat_inode_arg], eax
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    jmp .found
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.synthetic_file:
+    add eax, 128
+    mov [stat_inode_arg], eax
+    sub eax, 128
+    call linux_synthetic_file_info
+    jc .enoent
+    mov eax, ecx
+    mov edx, STAT_MODE_READONLY_REG
+    jmp .found
+%endif
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.chromium_resource_file:
+    call linux_find_chromium_resource_alias_entry
+    jc .enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .enotdir
+    movzx eax, word [fat_found_first_cluster]
+    mov [stat_inode_arg], eax
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    jmp .found
+%endif
 
 .alias_file:
 	call linux_find_library_alias_entry
@@ -27773,6 +30498,18 @@ linux_fstat64_common:
     jc .ebadf
     cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
     je .dev_null
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_ZERO
+    je .dev_zero
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
+    je .dev_urandom
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_READ
+    je .pipe
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
+    je .pipe
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    je .synthetic_file
+%endif
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
@@ -27795,10 +30532,44 @@ linux_fstat64_common:
     mov edx, STAT_MODE_READONLY_REG
     jmp .fill
 
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.synthetic_file:
+    mov edx, [fd_indices + eax * 4]
+    mov [stat_inode_arg], edx
+    push eax
+    mov eax, edx
+    call linux_synthetic_file_info
+    pop eax
+    jc .ebadf
+    mov eax, ecx
+    mov edx, STAT_MODE_READONLY_REG
+    jmp .fill
+%endif
+
 .dev_null:
     mov dword [stat_inode_arg], 4
     xor eax, eax
     mov edx, STAT_MODE_STDIO_CHR
+    jmp .fill
+
+.dev_zero:
+    mov dword [stat_inode_arg], 5
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
+    jmp .fill
+
+.dev_urandom:
+    mov dword [stat_inode_arg], 6
+    xor eax, eax
+    mov edx, STAT_MODE_STDIO_CHR
+    jmp .fill
+
+.pipe:
+    mov edx, [fd_indices + eax * 4]
+    add edx, 5
+    mov [stat_inode_arg], edx
+    xor eax, eax
+    mov edx, STAT_MODE_PIPE_FIFO
 
 .fill:
     cmp dword [linux_stat_format], LINUX_STAT_FORMAT_STATX
@@ -27837,6 +30608,10 @@ linux_sys_llseek:
     jc .ebadf_pop
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    je .synthetic_file
+%endif
     call user_file_lseek
     jc .from_eax
     jmp .store_result
@@ -27845,6 +30620,53 @@ linux_sys_llseek:
     call readonly_file_lseek
     jc .from_eax
     jmp .store_result
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.synthetic_file:
+    pop edi
+    push edi
+    cmp edi, 0
+    je .einval_pop
+    mov eax, [file_io_fd_slot]
+    mov eax, [fd_file_sizes + eax * 4]
+    cmp edx, 0
+    je .synthetic_seek_set
+    cmp edx, 1
+    je .synthetic_seek_cur
+    cmp edx, 2
+    je .synthetic_seek_end
+    jmp .einval_pop
+
+.synthetic_seek_set:
+    mov eax, ecx
+    test eax, 0x80000000
+    jnz .einval_pop
+    jmp .synthetic_seek_validate
+
+.synthetic_seek_cur:
+    mov eax, [file_io_fd_slot]
+    mov eax, [fd_offsets + eax * 4]
+    add eax, ecx
+    jo .einval_pop
+    test eax, 0x80000000
+    jnz .einval_pop
+    jmp .synthetic_seek_validate
+
+.synthetic_seek_end:
+    mov eax, [file_io_fd_slot]
+    mov eax, [fd_file_sizes + eax * 4]
+    add eax, ecx
+    jo .einval_pop
+    test eax, 0x80000000
+    jnz .einval_pop
+
+.synthetic_seek_validate:
+    mov ebx, [file_io_fd_slot]
+    cmp eax, [fd_file_sizes + ebx * 4]
+    ja .einval_pop
+    mov [fd_offsets + ebx * 4], eax
+    jmp .store_result
+%endif
 
 .store_result:
     pop edi
@@ -27878,12 +30700,22 @@ linux_sys_pread64:
     mov [fd_offsets + eax * 4], esi
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    je .synthetic_file
+%endif
     call user_file_read
     jmp .restore
 
 .readonly_file:
     call readonly_file_read
     jmp .restore
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.synthetic_file:
+    call linux_synthetic_file_read
+    jmp .restore
+%endif
 
 .restore:
     mov ebx, [file_io_fd_slot]
@@ -28167,21 +30999,41 @@ linux_sys_mmap2_file:
     ret
 
 linux_sys_writev:
-    cmp ebx, 1
-    je .fd_ok
-    cmp ebx, 2
-    je .fd_ok
-    mov eax, -ERRNO_EBADF
-    ret
-
-.fd_ok:
     test edx, edx
     js .einval
-    jz .zero
     cmp edx, LINUX_IOV_MAX_M1
     ja .einval
     mov [syscall_ptr_arg], ecx
     mov [syscall_len_arg], edx
+    mov dword [file_io_index], 0
+    cmp ebx, 1
+    je .fd_ok
+    cmp ebx, 2
+    je .fd_ok
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
+    je .pipe_fd
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    jne .ebadf
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .dev_null_fd
+    cmp eax, O_RDWR
+    jne .ebadf
+
+.dev_null_fd:
+    mov dword [file_io_index], 2
+    jmp .fd_ok
+
+.pipe_fd:
+    mov dword [file_io_index], 1
+
+.fd_ok:
+    cmp dword [syscall_len_arg], 0
+    je .zero
     mov eax, ecx
     mov ebx, edx
     shl ebx, 3
@@ -28207,6 +31059,13 @@ linux_sys_writev:
     mov ebx, ecx
     call user_range_validate
     jc .range_fail
+    cmp dword [file_io_index], 0
+    je .write_stdout
+    cmp dword [file_io_index], 1
+    je .write_pipe
+    jmp .write_dev_null
+
+.write_stdout:
     mov esi, [syscall_ptr_arg]
     mov ecx, [syscall_len_arg]
 
@@ -28224,6 +31083,29 @@ linux_sys_writev:
     jmp .write_next
 
 .write_done:
+    pop edi
+    mov eax, [syscall_len_arg]
+    add edi, eax
+    pop ebp
+    pop esi
+    jmp .iov_advance
+
+.write_pipe:
+    mov eax, [file_io_fd_slot]
+    mov ecx, [syscall_ptr_arg]
+    mov edx, [syscall_len_arg]
+    call pipe_write
+    jc .pipe_fail
+    pop edi
+    add edi, eax
+    mov ecx, [syscall_len_arg]
+    cmp eax, ecx
+    pop ebp
+    pop esi
+    jb .done
+    jmp .iov_advance
+
+.write_dev_null:
     pop edi
     mov eax, [syscall_len_arg]
     add edi, eax
@@ -28251,6 +31133,20 @@ linux_sys_writev:
 
 .einval:
     mov eax, -ERRNO_EINVAL
+    ret
+
+.pipe_fail:
+    mov edx, eax
+    pop edi
+    pop ebp
+    pop esi
+    cmp edi, 0
+    jne .done
+    mov eax, edx
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
     ret
 
 syscall_handler:
@@ -28469,7 +31365,18 @@ syscall_handler:
     je .write_pipe
     cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
     je .write_dev_null
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_ZERO
+    je .write_dev_null
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
+    je .write_dev_null
+    cmp byte [fd_kinds + eax], FD_KIND_EVENTFD
+    je .write_eventfd
     call user_file_write
+    jc .bad_syscall_from_eax
+    jmp .return
+
+.write_eventfd:
+    call eventfd_write
     jc .bad_syscall_from_eax
     jmp .return
 
@@ -28738,11 +31645,25 @@ syscall_handler:
     jne .open_synthetic_dir_skip
     call linux_path_is_dev_null
     jnc .open_dev_null_pop_bind
+    call linux_path_is_dev_zero
+    jnc .open_dev_zero_pop_bind
+    call linux_path_is_dev_urandom
+    jnc .open_dev_urandom_pop_bind
+    call linux_path_is_proc_self_exe
+    jnc .open_proc_self_exe_pop_lookup
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_path_get_synthetic_file
+    jnc .open_synthetic_file_pop_bind
+%endif
     mov eax, [syscall_open_flags]
     test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
     jnz .open_synthetic_dir_skip
     call linux_path_is_synthetic_lib_dir
     jnc .open_synthetic_dir_pop_bind
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    call linux_find_chromium_resource_alias
+    jnc .open_chromium_resource_pop_lookup
+%endif
     call linux_find_library_alias
     jnc .open_library_alias_pop_lookup
 
@@ -28782,11 +31703,93 @@ syscall_handler:
     jnz .bad_syscall_eisdir
     jmp .open_generic_bind_readonly
 
+.open_proc_self_exe_pop_lookup:
+    pop ebx
+    mov eax, [syscall_open_flags]
+    test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
+    jnz .bad_syscall_eacces
+    call linux_find_proc_self_exe_entry
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
+    jmp .open_generic_bind_readonly
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.open_synthetic_file_pop_bind:
+    pop ebx
+    mov [linux_synthetic_file_id_arg], eax
+    mov eax, [syscall_open_flags]
+    test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
+    jnz .bad_syscall_eacces
+    mov eax, [linux_synthetic_file_id_arg]
+    call linux_synthetic_file_info
+    jc .bad_syscall_enoent
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    mov edx, [linux_synthetic_file_id_arg]
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    mov [fd_file_sizes + eax * 4], ecx
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+%endif
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.open_chromium_resource_pop_lookup:
+    pop ebx
+    call linux_find_chromium_resource_alias_entry
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
+    jmp .open_generic_bind_readonly
+%endif
+
 .open_dev_null_pop_bind:
     pop ebx
     call fd_alloc
     jc .bad_syscall_emfile
     mov byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+
+.open_dev_zero_pop_bind:
+    pop ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DEV_ZERO
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+
+.open_dev_urandom_pop_bind:
+    pop ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
     mov dword [fd_indices + eax * 4], 0
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_file_sizes + eax * 4], 0
@@ -29028,9 +32031,45 @@ syscall_handler:
     je .read_pipe
     cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
     je .read_dev_null
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_ZERO
+    je .read_dev_zero
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
+    je .read_dev_urandom
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    je .read_synthetic_file
+%endif
+    cmp byte [fd_kinds + eax], FD_KIND_EVENTFD
+    je .read_eventfd
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    je .read_timerfd
     call user_file_read
     jc .bad_syscall_from_eax
     jmp .return
+
+.read_eventfd:
+    call eventfd_read
+    jc .bad_syscall_from_eax
+    jmp .return
+
+.read_timerfd:
+    call timerfd_read
+    jc .bad_syscall_from_eax
+    jmp .return
+
+.read_dev_zero:
+    call linux_dev_zero_read
+    jmp .return
+
+.read_dev_urandom:
+    call linux_dev_urandom_read
+    jmp .return
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.read_synthetic_file:
+    call linux_synthetic_file_read
+    jmp .return
+%endif
 
 .read_dev_null:
     mov esi, [file_io_fd_slot]
@@ -29110,9 +32149,59 @@ syscall_handler:
     je .lseek_primary_asset
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .lseek_readonly_file
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
+    je .lseek_synthetic_file
+%endif
     call user_file_lseek
     jc .bad_syscall_from_eax
     jmp .return
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.lseek_synthetic_file:
+    cmp edx, 0
+    je .seek_set_synthetic
+    cmp edx, 1
+    je .seek_cur_synthetic
+    cmp edx, 2
+    je .seek_end_synthetic
+    jmp .bad_syscall_einval
+
+.seek_set_synthetic:
+    mov eax, ecx
+    test eax, 0x80000000
+    jnz .bad_syscall_einval
+    jmp .seek_validate_synthetic
+
+.seek_cur_synthetic:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_offsets + esi * 4]
+    add eax, ecx
+    jo .bad_syscall_einval
+    test eax, 0x80000000
+    jnz .bad_syscall_einval
+    jmp .seek_validate_synthetic
+
+.seek_end_synthetic:
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_file_sizes + esi * 4]
+    add eax, ecx
+    jo .bad_syscall_einval
+    test eax, 0x80000000
+    jnz .bad_syscall_einval
+    jmp .seek_validate_synthetic
+
+.seek_validate_synthetic:
+    mov esi, [file_io_fd_slot]
+    cmp eax, [fd_file_sizes + esi * 4]
+    ja .bad_syscall_einval
+    mov [fd_offsets + esi * 4], eax
+    push eax
+    mov eax, user_io_lseek_count
+    call user_io_increment_current
+    pop eax
+    jmp .return
+%endif
 
 .lseek_readonly_file:
     call readonly_file_lseek
@@ -31293,6 +34382,8 @@ syscall_handler:
     je .lseek
     cmp eax, LINUX_SYS_GETPID
     je .getpid
+    cmp eax, LINUX_SYS_GETUID
+    je .linux_get_identity_zero
     cmp eax, LINUX_SYS_ACCESS
     je .linux_access
     cmp eax, LINUX_SYS_DUP
@@ -31301,14 +34392,24 @@ syscall_handler:
     je .linux_pipe
     cmp eax, LINUX_SYS_BRK
     je .linux_brk
+    cmp eax, LINUX_SYS_GETGID
+    je .linux_get_identity_zero
+    cmp eax, LINUX_SYS_GETEUID
+    je .linux_get_identity_zero
+    cmp eax, LINUX_SYS_GETEGID
+    je .linux_get_identity_zero
     cmp eax, LINUX_SYS_FCNTL
     je .linux_fcntl
     cmp eax, LINUX_SYS_IOCTL
     je .ioctl
+    cmp eax, LINUX_SYS_SETPGID
+    je .linux_setpgid
     cmp eax, LINUX_SYS_GETRLIMIT
     je .linux_getrlimit
     cmp eax, LINUX_SYS_DUP2
     je .dup2
+    cmp eax, LINUX_SYS_GETPPID
+    je .linux_getppid
     cmp eax, LINUX_SYS_SETSID
     je .linux_setsid
     cmp eax, LINUX_SYS_READLINK
@@ -31325,16 +34426,26 @@ syscall_handler:
     je .linux_uname
     cmp eax, LINUX_SYS_MPROTECT
     je .linux_mprotect
+    cmp eax, LINUX_SYS_GETPGID
+    je .linux_getpgid
     cmp eax, LINUX_SYS_LLSEEK
     je .linux_llseek
+    cmp eax, LINUX_SYS_SELECT
+    je .linux_select
     cmp eax, LINUX_SYS_WRITEV
     je .linux_writev
+    cmp eax, LINUX_SYS_POLL
+    je .linux_poll
+    cmp eax, LINUX_SYS_GETSID
+    je .linux_getsid
     cmp eax, LINUX_SYS_PRCTL
     je .linux_prctl
     cmp eax, LINUX_SYS_RT_SIGACTION
     je .linux_rt_sigaction
     cmp eax, LINUX_SYS_RT_SIGPROCMASK
     je .linux_rt_sigprocmask
+    cmp eax, LINUX_SYS_SIGALTSTACK
+    je .linux_sigaltstack
     cmp eax, LINUX_SYS_PREAD64
     je .linux_pread64
     cmp eax, LINUX_SYS_UGETRLIMIT
@@ -31361,6 +34472,12 @@ syscall_handler:
     je .set_thread_area
     cmp eax, LINUX_SYS_EXIT_GROUP
     je .exit
+    cmp eax, LINUX_SYS_EPOLL_CREATE
+    je .linux_epoll_create
+    cmp eax, LINUX_SYS_EPOLL_CTL
+    je .linux_epoll_ctl
+    cmp eax, LINUX_SYS_EPOLL_WAIT
+    je .linux_epoll_wait
     cmp eax, LINUX_SYS_SET_TID_ADDRESS
     je .linux_set_tid_address
     cmp eax, LINUX_SYS_CLOCK_GETTIME
@@ -31373,8 +34490,26 @@ syscall_handler:
     je .linux_readlinkat
     cmp eax, LINUX_SYS_FACCESSAT
     je .linux_faccessat
+    cmp eax, LINUX_SYS_PSELECT6
+    je .linux_pselect6
+    cmp eax, LINUX_SYS_PPOLL
+    je .linux_ppoll
     cmp eax, LINUX_SYS_SET_ROBUST_LIST
     je .linux_set_robust_list
+    cmp eax, LINUX_SYS_GET_ROBUST_LIST
+    je .linux_get_robust_list
+    cmp eax, LINUX_SYS_TIMERFD_CREATE
+    je .linux_timerfd_create
+    cmp eax, LINUX_SYS_EVENTFD
+    je .linux_eventfd
+    cmp eax, LINUX_SYS_TIMERFD_SETTIME
+    je .linux_timerfd_settime
+    cmp eax, LINUX_SYS_TIMERFD_GETTIME
+    je .linux_timerfd_gettime
+    cmp eax, LINUX_SYS_EVENTFD2
+    je .linux_eventfd2
+    cmp eax, LINUX_SYS_EPOLL_CREATE1
+    je .linux_epoll_create1
     cmp eax, LINUX_SYS_DUP3
     je .linux_dup3
     cmp eax, LINUX_SYS_PIPE2
@@ -31420,6 +34555,7 @@ syscall_handler:
     mov ebx, ecx
     call linux_record_path_arg
     pop ebx
+    mov [syscall_len_arg], ebx
     test edx, LINUX_O_DIRECTORY
     jz .linux_openat_file
     cmp ebx, LINUX_AT_FDCWD
@@ -31429,7 +34565,25 @@ syscall_handler:
     call user_range_validate
     jc .bad_syscall_einval
     cmp byte [eax], '/'
-    jne .bad_syscall_enoent
+    je .linux_openat_dir
+    push edx
+    push esi
+    mov ebx, [syscall_len_arg]
+    call fd_lookup
+    jc .linux_openat_dir_relative_bad_pop
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    jne .linux_openat_dir_relative_bad_pop
+    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
+    jne .linux_openat_dir_relative_bad_pop
+    mov dword [linux_relative_synthetic_dir_arg], 1
+    pop esi
+    pop edx
+    jmp .linux_openat_dir
+
+.linux_openat_dir_relative_bad_pop:
+    pop esi
+    pop edx
+    jmp .bad_syscall_enoent
 
 .linux_openat_dir:
     mov ebx, ecx
@@ -31438,6 +34592,7 @@ syscall_handler:
     jmp .return
 
 .linux_openat_file:
+    mov dword [linux_relative_synthetic_dir_arg], 0
     mov [syscall_ptr_arg], ecx
     mov [syscall_len_arg], ebx
     mov eax, ecx
@@ -31462,6 +34617,7 @@ syscall_handler:
     jne .linux_openat_relative_bad_pop
     cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
     jne .linux_openat_relative_bad_pop
+    mov dword [linux_relative_synthetic_dir_arg], 1
     pop esi
     pop edx
     jmp .linux_openat_args
@@ -31485,6 +34641,7 @@ syscall_handler:
     mov ebx, [syscall_ptr_arg]
     mov ecx, edx
     call linux_sys_open_directory
+    mov dword [linux_relative_synthetic_dir_arg], 0
     jmp .return
 
 .linux_access:
@@ -31495,10 +34652,35 @@ syscall_handler:
     jmp .return
 
 .linux_faccessat:
+    mov dword [linux_relative_synthetic_dir_arg], 0
+    mov [syscall_len_arg], ebx
     cmp ebx, LINUX_AT_FDCWD
+    je .linux_faccessat_args
+    mov eax, ecx
+    mov ebx, 1
+    call user_range_validate
+    jc .bad_syscall_einval
+    cmp byte [eax], '/'
+    je .linux_faccessat_args
+    mov ebx, [syscall_len_arg]
+    call fd_lookup
+    jc .bad_syscall_enoent
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
+    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
+    jne .bad_syscall_enoent
+    mov dword [linux_relative_synthetic_dir_arg], 1
+
+.linux_faccessat_args:
     mov ebx, ecx
-    jmp .linux_access
+    push dword [linux_relative_synthetic_dir_arg]
+    call linux_record_path_arg
+    pop dword [linux_relative_synthetic_dir_arg]
+    mov [syscall_ptr_arg], ebx
+    mov dword [syscall_stat_ptr], 0
+    call linux_stat_path_common
+    mov dword [linux_relative_synthetic_dir_arg], 0
+    jmp .return
 
 .linux_stat64:
     call linux_record_path_arg
@@ -31543,7 +34725,15 @@ syscall_handler:
     call user_range_validate
     jc .bad_syscall_einval
     cmp byte [eax], '/'
+    je .linux_fstatat64_args
+    mov ebx, [syscall_len_arg]
+    call fd_lookup
+    jc .bad_syscall_enoent
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
+    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
+    jne .bad_syscall_enoent
+    mov dword [linux_relative_synthetic_dir_arg], 1
 
 .linux_fstatat64_args:
     mov dword [linux_stat_format], LINUX_STAT_FORMAT_STAT64
@@ -31580,7 +34770,15 @@ syscall_handler:
     call user_range_validate
     jc .bad_syscall_einval
     cmp byte [eax], '/'
+    je .linux_statx_args
+    mov ebx, [syscall_len_arg]
+    call fd_lookup
+    jc .bad_syscall_enoent
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
+    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
+    jne .bad_syscall_enoent
+    mov dword [linux_relative_synthetic_dir_arg], 1
 
 .linux_statx_args:
     call linux_stat_path_common
@@ -31588,6 +34786,14 @@ syscall_handler:
 
 .linux_llseek:
     call linux_sys_llseek
+    jmp .return
+
+.linux_select:
+    call linux_sys_select
+    jmp .return
+
+.linux_poll:
+    call linux_sys_poll
     jmp .return
 
 .linux_pread64:
@@ -31646,12 +34852,77 @@ syscall_handler:
     call linux_sys_pipe2
     jmp .return
 
+.linux_pselect6:
+    call linux_sys_pselect6
+    jmp .return
+
+.linux_ppoll:
+    call linux_sys_ppoll
+    jmp .return
+
+.linux_epoll_create:
+    call linux_sys_epoll_create
+    jmp .return
+
+.linux_epoll_ctl:
+    call linux_sys_epoll_ctl
+    jmp .return
+
+.linux_epoll_wait:
+    call linux_sys_epoll_wait
+    jmp .return
+
+.linux_eventfd:
+    xor ecx, ecx
+    call linux_sys_eventfd2
+    jmp .return
+
+.linux_eventfd2:
+    call linux_sys_eventfd2
+    jmp .return
+
+.linux_epoll_create1:
+    call linux_sys_epoll_create1
+    jmp .return
+
+.linux_timerfd_create:
+    call linux_sys_timerfd_create
+    jmp .return
+
+.linux_timerfd_settime:
+    call linux_sys_timerfd_settime
+    jmp .return
+
+.linux_timerfd_gettime:
+    call linux_sys_timerfd_gettime
+    jmp .return
+
 .linux_gettid:
     call linux_sys_gettid
     jmp .return
 
+.linux_getppid:
+    call linux_sys_getppid
+    jmp .return
+
+.linux_get_identity_zero:
+    call linux_sys_get_identity_zero
+    jmp .return
+
+.linux_getpgid:
+    call linux_sys_getpgid
+    jmp .return
+
+.linux_setpgid:
+    call linux_sys_setpgid
+    jmp .return
+
 .linux_setsid:
     call linux_sys_setsid
+    jmp .return
+
+.linux_getsid:
+    call linux_sys_getsid
     jmp .return
 
 .linux_socketcall:
@@ -31689,6 +34960,7 @@ syscall_handler:
     mov [linux_clone_last_arg3], esi
     mov [linux_clone_last_arg4], edi
     mov dword [linux_clone_last_ctid], 0
+    mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
 
     mov eax, ebx
@@ -31717,21 +34989,39 @@ syscall_handler:
     jc .linux_clone_efault
 
 .linux_clone_stack_valid:
-    mov eax, edi
-    test eax, eax
-    jnz .linux_clone_have_ctid
-    mov eax, esi
+    test dword [linux_clone_last_flags], LINUX_CLONE_PARENT_SETTID
+    jz .linux_clone_parent_tid_ready
+    cmp dword [linux_clone_last_ptid], 0
+    je .linux_clone_efault
+    mov eax, [linux_clone_last_ptid]
+    mov ebx, 4
+    call user_range_validate
+    jc .linux_clone_efault
 
-.linux_clone_have_ctid:
-    mov [linux_clone_last_ctid], eax
-    test eax, eax
+.linux_clone_parent_tid_ready:
+    test dword [linux_clone_last_flags], LINUX_CLONE_CHILD_SETTID | LINUX_CLONE_CHILD_CLEARTID
     jz .linux_clone_ctid_ready
-    mov [syscall_ptr_arg], eax
+    cmp dword [linux_clone_last_arg4], 0
+    je .linux_clone_efault
+    mov eax, [linux_clone_last_arg4]
+    mov [linux_clone_last_ctid], eax
     mov ebx, 4
     call user_range_validate
     jc .linux_clone_efault
 
 .linux_clone_ctid_ready:
+    test dword [linux_clone_last_flags], LINUX_CLONE_SETTLS
+    jz .linux_clone_tls_ready
+    cmp dword [linux_clone_last_arg3], 0
+    je .linux_clone_efault
+    mov eax, [linux_clone_last_arg3]
+    mov ebx, LINUX_USER_DESC_BYTES
+    call user_range_validate
+    jc .linux_clone_efault
+    mov eax, [eax + LINUX_USER_DESC_BASE_ADDR]
+    mov [linux_clone_last_tls_base], eax
+
+.linux_clone_tls_ready:
     mov [process_fork_frame_ptr], esp
     mov eax, [linux_clone_last_flags]
     and eax, 0xffffff00
@@ -31759,6 +35049,29 @@ syscall_handler:
 .linux_clone_child_stack_done:
     pop eax
     push eax
+    test dword [linux_clone_last_flags], LINUX_CLONE_SETTLS
+    jz .linux_clone_child_tls_done
+    mov esi, [process_fork_child_proc]
+    cmp esi, 0
+    je .linux_clone_child_tls_done
+    mov edx, [linux_clone_last_tls_base]
+    mov [esi + PROC_LINUX_TLS_BASE], edx
+    mov dword [esi + PROC_SAVED_GS], LINUX_TLS_SEG
+
+.linux_clone_child_tls_done:
+    pop eax
+    push eax
+    test dword [linux_clone_last_flags], LINUX_CLONE_PARENT_SETTID
+    jz .linux_clone_parent_tid_done
+    mov edi, [linux_clone_last_ptid]
+    cmp edi, 0
+    je .linux_clone_parent_tid_done
+    mov edx, [process_fork_child_pid]
+    mov [edi], edx
+
+.linux_clone_parent_tid_done:
+    pop eax
+    push eax
     mov edx, [linux_clone_last_ctid]
     cmp edx, 0
     je .linux_clone_child_tid_done
@@ -31774,8 +35087,20 @@ syscall_handler:
     mov cr3, eax
     pop edx
     pop edi
+    test dword [linux_clone_last_flags], LINUX_CLONE_CHILD_CLEARTID
+    jz .linux_clone_child_tid_write_check
+    mov esi, [process_fork_child_proc]
+    cmp esi, 0
+    je .linux_clone_child_tid_write_check
+    mov [esi + PROC_LINUX_SET_TID_ADDR], edi
+
+.linux_clone_child_tid_write_check:
+    test dword [linux_clone_last_flags], LINUX_CLONE_CHILD_SETTID
+    jz .linux_clone_restore_child_cr3
     mov eax, [process_fork_child_pid]
     mov [edi], eax
+
+.linux_clone_restore_child_cr3:
     mov eax, edx
     mov cr3, eax
 
@@ -31822,6 +35147,10 @@ syscall_handler:
     call linux_sys_set_robust_list
     jmp .return
 
+.linux_get_robust_list:
+    call linux_sys_get_robust_list
+    jmp .return
+
 .linux_set_tid_address:
     call linux_sys_set_tid_address
     jmp .return
@@ -31840,6 +35169,10 @@ syscall_handler:
 
 .linux_rt_sigprocmask:
     call linux_sys_rt_sigprocmask
+    jmp .return
+
+.linux_sigaltstack:
+    call linux_sys_sigaltstack
     jmp .return
 
 .linux_getrandom:
@@ -35537,6 +38870,75 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [linux_last_unimpl_nr]
     call smoke_write_slash_hex32
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    mov esi, smoke_m1live_text
+    call smoke_copy_string
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    jne .m1live_current_present
+    xor edx, edx
+    call smoke_write_hex32
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    jmp .m1live_target
+
+.m1live_current_present:
+    mov edx, [esi + PROC_PID]
+    call smoke_write_hex32
+    mov edx, [esi + PROC_STATE]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_TICKS]
+    call smoke_write_slash_hex32
+
+.m1live_target:
+    mov esi, [process_exec_target]
+    cmp esi, 0
+    jne .m1live_target_present
+    xor edx, edx
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    call smoke_write_slash_hex32
+    jmp .m1live_fault_exit
+
+.m1live_target_present:
+    mov edx, [esi + PROC_PID]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_STATE]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_TICKS]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_SAVED_EIP]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_SAVED_ESP]
+    call smoke_write_slash_hex32
+    mov edx, [esi + PROC_PERSONALITY]
+    call smoke_write_slash_hex32
+
+.m1live_fault_exit:
+    mov edx, [process_fault_last_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_fault_last_state]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_last_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_last_state]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_status]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_sequence]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_handled_sequence]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_refaults]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_last_addr]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_last_eip]
+    call smoke_write_slash_hex32
+%endif
     mov esi, smoke_linux_sys_text
     call smoke_copy_string
     mov edx, [linux_syscall_count]
@@ -41889,6 +45291,9 @@ smoke_exec_envp0_text db " envp0=", 0
 smoke_exec_argvsrc_text db " argvsrc=", 0
 smoke_exec_auxv_text db " auxv=", 0
 smoke_linux_m1_text db " linuxm1=", 0
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+smoke_m1live_text db " m1live=", 0
+%endif
 smoke_linux_sys_text db " linuxsys=", 0
 smoke_linux_arg_text db " linuxarg=", 0
 smoke_linux_err_text db " linuxerr=", 0
@@ -42468,6 +45873,8 @@ linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
 linux_proc_self_exe_elf_name_83 db "PROCEXE ELF"
+linux_procid_elf_name_83 db "PROCID  ELF"
+linux_libmagic_elf_name_83 db "LIBMAGICELF"
 linux_ldoom_elf_name_83 db "LDOOM   ELF"
 linux_busybox_elf_name_83 db "BUSYBOX ELF"
 linux_tmpdir_elf_name_83 db "TMPDIR  ELF"
@@ -42505,6 +45912,8 @@ exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_proc_self_exe db "/BIN/PROCEXE.ELF", 0
+exec_path_linux_procid db "/BIN/PROCID.ELF", 0
+exec_path_linux_libmagic db "/BIN/LIBMAGIC.ELF", 0
 exec_path_linux_ldoom db "/BIN/LDOOM.ELF", 0
 exec_path_linux_busybox db "/BIN/BUSYBOX.ELF", 0
 exec_path_linux_tmpdir db "/BIN/TMPDIR.ELF", 0
@@ -42541,14 +45950,75 @@ linux_path_tmp_chromium_profile db "/tmp/chromium-profile", 0
 linux_path_tmp_chromium_profile_end:
 linux_path_tmp_chromium_profile_slash db "/tmp/chromium-profile/", 0
 linux_path_tmp_chromium_profile_slash_end:
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_path_usr_lib_chromium db "/usr/lib/chromium", 0
+linux_path_usr_lib_chromium_end:
+linux_path_usr_lib_chromium_slash db "/usr/lib/chromium/", 0
+linux_path_usr_lib_chromium_slash_end:
+linux_path_usr_lib_chromium_locales db "/usr/lib/chromium/locales", 0
+linux_path_usr_lib_chromium_locales_end:
+linux_path_usr_lib_chromium_locales_slash db "/usr/lib/chromium/locales/", 0
+linux_path_usr_lib_chromium_locales_slash_end:
+%endif
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_path_proc db "/proc", 0
+linux_path_proc_end:
+linux_path_proc_slash db "/proc/", 0
+linux_path_proc_slash_end:
+linux_path_proc_self db "/proc/self", 0
+linux_path_proc_self_end:
+linux_path_proc_self_slash db "/proc/self/", 0
+linux_path_proc_self_slash_end:
+linux_path_proc_self_fd db "/proc/self/fd", 0
+linux_path_proc_self_fd_end:
+linux_path_proc_self_fd_slash db "/proc/self/fd/", 0
+linux_path_proc_self_fd_slash_end:
+linux_path_dev db "/dev", 0
+linux_path_dev_end:
+linux_path_dev_slash db "/dev/", 0
+linux_path_dev_slash_end:
+%endif
 linux_path_dev_null db "/dev/null", 0
 linux_path_dev_null_end:
+linux_path_dev_zero db "/dev/zero", 0
+linux_path_dev_zero_end:
+linux_path_dev_urandom db "/dev/urandom", 0
+linux_path_dev_urandom_end:
+linux_path_proc_self_cmdline db "/proc/self/cmdline", 0
+linux_path_proc_self_cmdline_end:
+linux_path_proc_self_status db "/proc/self/status", 0
+linux_path_proc_self_status_end:
+linux_path_proc_self_stat db "/proc/self/stat", 0
+linux_path_proc_self_stat_end:
+linux_path_proc_self_maps db "/proc/self/maps", 0
+linux_path_proc_self_maps_end:
+linux_path_proc_self_fd0 db "/proc/self/fd/0", 0
+linux_path_proc_self_fd0_end:
+linux_path_proc_self_fd1 db "/proc/self/fd/1", 0
+linux_path_proc_self_fd1_end:
+linux_path_proc_self_fd2 db "/proc/self/fd/2", 0
+linux_path_proc_self_fd2_end:
+linux_path_usr_lib_os_release db "/usr/lib/os-release", 0
+linux_path_usr_lib_os_release_end:
+linux_path_etc_os_release db "/etc/os-release", 0
+linux_path_etc_os_release_end:
 linux_libglib_name_83 db "GLIB20  SO0"
 linux_libgobject_name_83 db "GOBJ20  SO0"
 linux_libgio_name_83 db "GIO20   SO0"
 linux_libc_name_83 db "LIBC    SO6"
 linux_libc_short_name_83 db "C       SO6"
 linux_libharfbuzz_subset_name_83 db "HBSUBSETSO0"
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+chromium_dir_name_83 db "CHROMIUM   "
+chromium_icudtl_name_83 db "ICUDTL  DAT"
+chromium_resources_name_83 db "RESOURCEPAK"
+chromium_chrome100_name_83 db "CHR100  PAK"
+chromium_chrome200_name_83 db "CHR200  PAK"
+chromium_en_us_name_83 db "EN-US   PAK"
+chromium_snapshot_blob_name_83 db "SNAPBLOBBIN"
+chromium_v8_context_name_83 db "V8CONTXTBIN"
+chromium_crashpad_name_83 db "CRASHPAD ELF"
+%endif
 linux_path_lib_i386_libglib db "/lib/i386-linux-gnu/libglib-2.0.so.0", 0
 linux_path_lib_i386_libglib_end:
 linux_path_usr_lib_i386_libglib db "/usr/lib/i386-linux-gnu/libglib-2.0.so.0", 0
@@ -42701,6 +46171,96 @@ linux_library_alias_name_table:
     dd linux_libgio_name_83
     dd linux_libgio_name_83
     dd linux_libgio_name_83
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_path_usr_lib_chromium_icudtl db "/usr/lib/chromium/icudtl.dat", 0
+linux_path_usr_lib_chromium_icudtl_end:
+linux_path_usr_lib_chromium_resources db "/usr/lib/chromium/resources.pak", 0
+linux_path_usr_lib_chromium_resources_end:
+linux_path_usr_lib_chromium_chrome100 db "/usr/lib/chromium/chrome_100_percent.pak", 0
+linux_path_usr_lib_chromium_chrome100_end:
+linux_path_usr_lib_chromium_chrome200 db "/usr/lib/chromium/chrome_200_percent.pak", 0
+linux_path_usr_lib_chromium_chrome200_end:
+linux_path_usr_lib_chromium_en_us db "/usr/lib/chromium/locales/en-US.pak", 0
+linux_path_usr_lib_chromium_en_us_end:
+linux_path_usr_lib_chromium_snapshot_blob db "/usr/lib/chromium/snapshot_blob.bin", 0
+linux_path_usr_lib_chromium_snapshot_blob_end:
+linux_path_usr_lib_chromium_v8_context db "/usr/lib/chromium/v8_context_snapshot.bin", 0
+linux_path_usr_lib_chromium_v8_context_end:
+linux_path_usr_lib_chromium_crashpad db "/usr/lib/chromium/chrome_crashpad_handler", 0
+linux_path_usr_lib_chromium_crashpad_end:
+align 4
+linux_chromium_resource_alias_path_table:
+    dd linux_path_usr_lib_chromium_icudtl
+    dd linux_path_usr_lib_chromium_resources
+    dd linux_path_usr_lib_chromium_chrome100
+    dd linux_path_usr_lib_chromium_chrome200
+    dd linux_path_usr_lib_chromium_en_us
+    dd linux_path_usr_lib_chromium_snapshot_blob
+    dd linux_path_usr_lib_chromium_v8_context
+    dd linux_path_usr_lib_chromium_crashpad
+linux_chromium_resource_alias_len_table:
+    dd linux_path_usr_lib_chromium_icudtl_end - linux_path_usr_lib_chromium_icudtl
+    dd linux_path_usr_lib_chromium_resources_end - linux_path_usr_lib_chromium_resources
+    dd linux_path_usr_lib_chromium_chrome100_end - linux_path_usr_lib_chromium_chrome100
+    dd linux_path_usr_lib_chromium_chrome200_end - linux_path_usr_lib_chromium_chrome200
+    dd linux_path_usr_lib_chromium_en_us_end - linux_path_usr_lib_chromium_en_us
+    dd linux_path_usr_lib_chromium_snapshot_blob_end - linux_path_usr_lib_chromium_snapshot_blob
+    dd linux_path_usr_lib_chromium_v8_context_end - linux_path_usr_lib_chromium_v8_context
+    dd linux_path_usr_lib_chromium_crashpad_end - linux_path_usr_lib_chromium_crashpad
+linux_chromium_resource_alias_name_table:
+    dd chromium_icudtl_name_83
+    dd chromium_resources_name_83
+    dd chromium_chrome100_name_83
+    dd chromium_chrome200_name_83
+    dd chromium_en_us_name_83
+    dd chromium_snapshot_blob_name_83
+    dd chromium_v8_context_name_83
+    dd chromium_crashpad_name_83
+linux_chromium_resource_alias_dir_table:
+    dd bin_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+    dd chromium_dir_name_83
+%endif
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_synthetic_cmdline_text db "chromium", 0
+linux_synthetic_cmdline_text_end:
+linux_synthetic_status_text db "Name:", 9, "chromium", 10, "State:", 9, "R (running)", 10
+linux_synthetic_status_text_end:
+linux_synthetic_stat_text db "1 (chromium) R 0 1 1 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", 10
+linux_synthetic_stat_text_end:
+linux_synthetic_maps_text db "08000000-18000000 r-xp 00000000 00:00 0 /BIN/CHROMIUM.ELF", 10
+linux_synthetic_maps_text_end:
+linux_synthetic_fd_target_text db "/dev/null", 10
+linux_synthetic_fd_target_text_end:
+linux_synthetic_os_release_text db "NAME=vibe-os", 10, "ID=vibe-os", 10, "PRETTY_NAME=", 34, "vibe-os Linux personality seed", 34, 10
+linux_synthetic_os_release_text_end:
+linux_proc_fd_target_text db "/dev/null", 0
+linux_proc_fd_target_text_end:
+align 4
+linux_synthetic_file_data_table:
+    dd linux_synthetic_cmdline_text
+    dd linux_synthetic_status_text
+    dd linux_synthetic_stat_text
+    dd linux_synthetic_maps_text
+    dd linux_synthetic_fd_target_text
+    dd linux_synthetic_fd_target_text
+    dd linux_synthetic_fd_target_text
+    dd linux_synthetic_os_release_text
+linux_synthetic_file_size_table:
+    dd linux_synthetic_cmdline_text_end - linux_synthetic_cmdline_text
+    dd linux_synthetic_status_text_end - linux_synthetic_status_text
+    dd linux_synthetic_stat_text_end - linux_synthetic_stat_text
+    dd linux_synthetic_maps_text_end - linux_synthetic_maps_text
+    dd linux_synthetic_fd_target_text_end - linux_synthetic_fd_target_text
+    dd linux_synthetic_fd_target_text_end - linux_synthetic_fd_target_text
+    dd linux_synthetic_fd_target_text_end - linux_synthetic_fd_target_text
+    dd linux_synthetic_os_release_text_end - linux_synthetic_os_release_text
+%endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
 chromium_arg_no_sandbox db "--no-sandbox", 0
 chromium_arg_no_zygote db "--no-zygote", 0
@@ -43023,6 +46583,7 @@ process_kernel:
     dd 0, 0
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -43034,6 +46595,7 @@ process_user_probe:
     dd process_user_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_preempt_probe:
     dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -43045,6 +46607,7 @@ process_preempt_probe:
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_payload:
     dd 2, USER_KIND_GENERIC, PROC_STATE_READY
     dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
@@ -43056,6 +46619,7 @@ process_payload:
     dd process_payload_heap_bitmap, PAYLOAD_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_generic0:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -43067,6 +46631,7 @@ process_generic0:
     dd process_generic0_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_generic1:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -43078,6 +46643,7 @@ process_generic1:
     dd process_generic1_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_generic2:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -43089,6 +46655,7 @@ process_generic2:
     dd process_generic2_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
+    times 14 dd 0
 process_generic_exec_slots:
     dd process_generic0, process_generic1, process_generic2
 align 4
@@ -43768,6 +47335,9 @@ linux_m1_smoke_personality dd PERSONALITY_NATIVE
 linux_m1_smoke_last_error dd 0
 linux_m1_smoke_exit_status dd 0
 linux_m1_smoke_runtime_status_writes dd 0
+linux_m1_smoke_status_last_syscall_count dd 0
+linux_m1_smoke_status_last_demand_sequence dd 0
+linux_m1_smoke_status_last_unimpl_nr dd 0
 sys_exec_stage_base dd 0
 sys_exec_stage_alloc_status dd 0
 sys_exec_stage_bytes dd 0
@@ -43784,6 +47354,18 @@ syscall_stat_ptr dd 0
 syscall_open_flags dd 0
 syscall_dirent_ptr dd 0
 syscall_dirent_max dd 0
+linux_pollfds_arg dd 0
+linux_poll_nfds_arg dd 0
+linux_poll_ready_count dd 0
+linux_poll_index dd 0
+linux_select_nfds_arg dd 0
+linux_select_readfds_arg dd 0
+linux_select_writefds_arg dd 0
+linux_select_exceptfds_arg dd 0
+linux_select_fdset_bytes dd 0
+linux_select_ready_count dd 0
+linux_select_fd_index dd 0
+linux_select_bit_mask dd 0
 fat_open_slot dd 0
 fat_unlink_slot dd 0
 stat_size_arg dd 0
@@ -43864,6 +47446,52 @@ pipe_write_open times PIPE_SLOT_COUNT db 0
 align 4
 pipe_lengths times PIPE_SLOT_COUNT dd 0
 pipe_buffers times PIPE_SLOT_COUNT * PIPE_BUFFER_BYTES db 0
+eventfd_status times EVENTFD_SLOT_COUNT db 0
+align 4
+eventfd_counter_low times EVENTFD_SLOT_COUNT dd 0
+eventfd_counter_high times EVENTFD_SLOT_COUNT dd 0
+eventfd_init_low_arg dd 0
+eventfd_flags_arg dd 0
+eventfd_alloc_slot dd 0
+eventfd_io_fd_slot dd 0
+eventfd_io_user_ptr dd 0
+epoll_status times EPOLL_SLOT_COUNT db 0
+epoll_entry_status times EPOLL_ENTRY_COUNT db 0
+align 4
+epoll_entry_owner times EPOLL_ENTRY_COUNT dd 0
+epoll_entry_fd times EPOLL_ENTRY_COUNT dd 0
+epoll_entry_events times EPOLL_ENTRY_COUNT dd 0
+epoll_entry_data_low times EPOLL_ENTRY_COUNT dd 0
+epoll_entry_data_high times EPOLL_ENTRY_COUNT dd 0
+epoll_flags_arg dd 0
+epoll_alloc_slot dd 0
+epoll_epfd_arg dd 0
+epoll_op_arg dd 0
+epoll_target_fd_arg dd 0
+epoll_event_ptr_arg dd 0
+epoll_event_events_arg dd 0
+epoll_event_data_low_arg dd 0
+epoll_event_data_high_arg dd 0
+epoll_slot_arg dd 0
+epoll_wait_events_ptr dd 0
+epoll_wait_maxevents dd 0
+epoll_wait_ready_count dd 0
+epoll_scan_index dd 0
+epoll_ready_events_arg dd 0
+timerfd_status times TIMERFD_SLOT_COUNT db 0
+align 4
+timerfd_clockid times TIMERFD_SLOT_COUNT dd 0
+timerfd_expirations_low times TIMERFD_SLOT_COUNT dd 0
+timerfd_expirations_high times TIMERFD_SLOT_COUNT dd 0
+timerfd_clock_arg dd 0
+timerfd_flags_arg dd 0
+timerfd_alloc_slot dd 0
+timerfd_fd_arg dd 0
+timerfd_slot_arg dd 0
+timerfd_new_ptr_arg dd 0
+timerfd_old_ptr_arg dd 0
+timerfd_io_fd_slot dd 0
+timerfd_io_user_ptr dd 0
 file_io_user_fd_slot dd 0
 file_io_index dd 0
 file_io_user_ptr dd 0
@@ -44048,6 +47676,7 @@ linux_clone_last_ptid dd 0
 linux_clone_last_arg3 dd 0
 linux_clone_last_arg4 dd 0
 linux_clone_last_ctid dd 0
+linux_clone_last_tls_base dd 0
 linux_clone_last_result dd 0
 linux_path_last_nr dd 0
 linux_path_last_ret dd 0
@@ -44062,6 +47691,14 @@ linux_error_path_bytes times LINUX_PATH_SNAPSHOT_BYTES db 0
 linux_library_alias_name_ptr dd 0
 linux_library_basename_ptr dd 0
 linux_library_alias_name_buffer times 11 db 0
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+linux_chromium_resource_name_ptr dd 0
+linux_chromium_resource_dir_ptr dd chromium_dir_name_83
+linux_synthetic_file_id_arg dd 0
+%endif
+linux_relative_synthetic_dir_arg dd 0
+linux_readlink_user_ptr dd 0
+linux_readlink_source_len dd 0
 align 4
 linux_stat_format dd LINUX_STAT_FORMAT_STAT64
 linux_open_flags_arg dd 0

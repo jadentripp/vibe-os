@@ -12,6 +12,14 @@ pipe_probe
 fork_probe
 proc_self_exe_probe
 tmp_dir_probe
+procid_probe
+libmagic_probe
+writev_probe
+eventfd_probe
+epoll_probe
+timerfd_probe
+futex_probe
+thread_probe
 hello_musl
 hello_glibc
 libc_probe

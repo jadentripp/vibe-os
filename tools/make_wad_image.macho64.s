@@ -2260,7 +2260,7 @@ _install_bootable_layout:               ## @install_bootable_layout
 	callq	_free
 	movq	-15672(%rbp), %rdi              ## 8-byte Reload
 	callq	_read_file
-	cmpq	$212993, %rdx                   ## imm = 0x34001
+	cmpq	$229377, %rdx                   ## imm = 0x38001
 	jae	LBB3_358
 ## %bb.5:
 	movq	%rax, %r14
@@ -2570,7 +2570,7 @@ LBB3_34:                                ## =>This Inner Loop Header: Depth=1
 	movb	$1, -15296(%rbp)
 	movl	$0, -15295(%rbp)
 	movb	$0, -15291(%rbp)
-	movabsq	$914797969211394, %rax          ## imm = 0x34000FFFF0002
+	movabsq	$985166713389058, %rax          ## imm = 0x38000FFFF0002
 	movq	%rax, -15290(%rbp)
 	movb	$1, -15282(%rbp)
 	movl	$0, -15281(%rbp)
@@ -13357,7 +13357,7 @@ _install_bootable_layout.cold.2:        ## @install_bootable_layout.cold.2
 	movq	(%rax), %rdi
 	leaq	L_.str.316(%rip), %rsi
 	leaq	L_.str.314(%rip), %rdx
-	movl	$212992, %r8d                   ## imm = 0x34000
+	movl	$229376, %r8d                   ## imm = 0x38000
 	xorl	%eax, %eax
 	callq	_fprintf
 	pushq	$1
