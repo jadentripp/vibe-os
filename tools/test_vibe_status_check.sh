@@ -4,6 +4,7 @@ set -eu
 ROOT="${ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_CC="${HOST_CC:-cc}"
+HOST_NO_PIE="${HOST_NO_PIE:-}"
 NASM="${NASM:-nasm}"
 CHECKER="$BUILD_DIR/vibe_status_check"
 CHECKER_OBJ="$BUILD_DIR/vibe_status_check.o"
@@ -16,6 +17,7 @@ case "$(uname -s)" in
   *)
     HOST_NASM_FORMAT="${HOST_NASM_FORMAT:-elf64}"
     HOST_NASM_DEFS="${HOST_NASM_DEFS:-}"
+    HOST_NO_PIE="${HOST_NO_PIE:--no-pie}"
     ;;
 esac
 
@@ -23,7 +25,8 @@ mkdir -p "$BUILD_DIR"
 set -- $HOST_NASM_DEFS
 "$NASM" -f "$HOST_NASM_FORMAT" "$@" \
   "$ROOT/tools/vibe_status_check.asm" -o "$CHECKER_OBJ"
-"$HOST_CC" "$CHECKER_OBJ" -o "$CHECKER"
+set -- $HOST_NO_PIE
+"$HOST_CC" "$@" "$CHECKER_OBJ" -o "$CHECKER"
 
 "$CHECKER" --repo-contract
 "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi \

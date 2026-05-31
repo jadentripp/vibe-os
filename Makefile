@@ -1194,7 +1194,7 @@ quake-status-proof-check:
 	printf "Quake proof status OK: /APPS/QUAKE/APP.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
 
 vm-status-proof-check:
-	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh
+	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" HOST_NO_PIE="$(HOST_NO_PIE)" tools/test_vibe_status_check.sh
 
 persistence-image-check: $(IMAGE_BUILDER)
 	@set -e; \
