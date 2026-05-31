@@ -17,7 +17,9 @@ case "$(uname -s)" in
   *)
     HOST_NASM_FORMAT="${HOST_NASM_FORMAT:-elf64}"
     HOST_NASM_DEFS="${HOST_NASM_DEFS:-}"
-    HOST_NO_PIE="${HOST_NO_PIE:--no-pie}"
+    if [ -z "$HOST_NO_PIE" ]; then
+      HOST_NO_PIE="-no-pie"
+    fi
     ;;
 esac
 
