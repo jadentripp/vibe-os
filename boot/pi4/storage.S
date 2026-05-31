@@ -84,6 +84,7 @@
 .equ PI4_STORAGE_APP_RECORD_ELF_ENTRY_OFF, 24
 .equ PI4_STORAGE_APP_RECORD_MANIFEST_OFF, 32
 .equ PI4_STORAGE_APP_RECORD_COUNT,      PI4_STORAGE_APP_RECORD_TABLE_BYTES / PI4_STORAGE_APP_RECORD_BYTES
+.equ PI4_STORAGE_ROOT_FOUND_NET_STATUS, 4096
 
 .macro PI4_STORAGE_LOAD_LE16 dst, base, off, tmp
     ldrb \dst, [\base, #\off]
@@ -142,8 +143,10 @@
 .equ PI4_SDHCI_HOST_VERSION,            0xfe
 
 .equ PI4_SDHCI_PRESENT_INHIBIT_MASK,    0x00000003
+.equ PI4_SDHCI_PRESENT_SPACE_AVAILABLE, 0x00000400
 .equ PI4_SDHCI_INT_CMD_COMPLETE,        0x00000001
 .equ PI4_SDHCI_INT_TRANSFER_COMPLETE,   0x00000002
+.equ PI4_SDHCI_INT_BUFFER_WRITE_READY,  0x00000010
 .equ PI4_SDHCI_INT_BUFFER_READ_READY,   0x00000020
 .equ PI4_SDHCI_INT_ERROR,               0x00008000
 .equ PI4_SDHCI_INT_PIO_ENABLE_MASK,     0xffff8023
@@ -162,8 +165,10 @@
 .equ PI4_SDHCI_CMD16_SET_BLOCKLEN,      0x0000101a
 .equ PI4_SDHCI_CMD17_READ_SINGLE,       0x0000113a
 .equ PI4_SDHCI_CMD18_READ_MULTI,        0x0000123a
+.equ PI4_SDHCI_CMD24_WRITE_SINGLE,      0x0000183a
 .equ PI4_SDHCI_CMD55_APP_CMD,           0x0000371a
 .equ PI4_SDHCI_ACMD41_SD_SEND_OP_COND,  0x00002902
+.equ PI4_SDHCI_TRANSFER_WRITE_SINGLE,   0x00000002
 .equ PI4_SDHCI_TRANSFER_READ_SINGLE,    0x00000012
 .equ PI4_SDHCI_TRANSFER_READ_MULTI,     0x00000036
 .equ PI4_SDHCI_PIO_WORDS_PER_SECTOR,    128
@@ -474,6 +479,134 @@ pi4_storage_block_read:
     ret
 .size pi4_storage_read_blocks, . - pi4_storage_read_blocks
 .size pi4_storage_block_read, . - pi4_storage_block_read
+
+// x0 = starting raw card LBA, x1 = 512-byte source buffer.
+// Returns x0 = 0, or -errno if the initialized SDHCI PIO write path fails.
+.global pi4_storage_write_block
+.type pi4_storage_write_block, %function
+pi4_storage_write_block:
+    mov x8, x0
+    mov x9, x1
+    cbz x9, .Lpi4_storage_write_einval
+    lsr x2, x8, #32
+    cbnz x2, .Lpi4_storage_write_einval
+
+    adr x3, pi4_storage_status_block_controller
+    ldr w4, [x3]
+    ldr w5, =VIBE_PI4_STORAGE_SDCTL_EMMC2
+    cmp w4, w5
+    b.eq .Lpi4_storage_write_have_controller
+    ldr w5, =VIBE_PI4_STORAGE_SDCTL_EMMC
+    cmp w4, w5
+    b.ne .Lpi4_storage_write_enosys
+
+.Lpi4_storage_write_have_controller:
+    adr x3, pi4_storage_status_sdctl_arm_base
+    ldr x12, [x3]
+    cbz x12, .Lpi4_storage_write_enosys
+    adr x3, pi4_storage_status_sdctl_card_ready
+    ldr x4, [x3]
+    cmp x4, #1
+    b.ne .Lpi4_storage_write_enosys
+
+    mov x14, #PI4_SDHCI_POLL_LIMIT
+.Lpi4_storage_write_wait_inhibit:
+    ldr w13, [x12, #PI4_SDHCI_PRESENT_STATE]
+    and w15, w13, #PI4_SDHCI_PRESENT_INHIBIT_MASK
+    cbz w15, .Lpi4_storage_write_issue
+    subs x14, x14, #1
+    b.ne .Lpi4_storage_write_wait_inhibit
+    b .Lpi4_storage_write_wait
+
+.Lpi4_storage_write_issue:
+    mov x16, x8
+    adr x3, pi4_storage_status_sdctl_block_addressing
+    ldr x4, [x3]
+    cbnz x4, .Lpi4_storage_write_have_argument
+    lsl x16, x16, #9
+    lsr x3, x16, #32
+    cbnz x3, .Lpi4_storage_write_einval
+.Lpi4_storage_write_have_argument:
+    mov w15, #-1
+    str w15, [x12, #PI4_SDHCI_INT_STATUS]
+    mov w15, #PI4_STORAGE_BLOCK_SECTOR_BYTES
+    strh w15, [x12, #PI4_SDHCI_BLOCK_SIZE]
+    mov w15, #1
+    strh w15, [x12, #PI4_SDHCI_BLOCK_COUNT]
+    str w16, [x12, #PI4_SDHCI_ARGUMENT]
+    mov w15, #PI4_SDHCI_TRANSFER_WRITE_SINGLE
+    strh w15, [x12, #PI4_SDHCI_TRANSFER_MODE]
+    mov w15, #PI4_SDHCI_CMD24_WRITE_SINGLE
+    strh w15, [x12, #PI4_SDHCI_COMMAND]
+    dsb sy
+
+    mov x14, #PI4_SDHCI_POLL_LIMIT
+.Lpi4_storage_write_wait_cmd_done:
+    ldr w13, [x12, #PI4_SDHCI_INT_STATUS]
+    tst w13, #PI4_SDHCI_INT_ERROR
+    b.ne .Lpi4_storage_write_eio
+    tst w13, #PI4_SDHCI_INT_CMD_COMPLETE
+    b.ne .Lpi4_storage_write_cmd_done
+    subs x14, x14, #1
+    b.ne .Lpi4_storage_write_wait_cmd_done
+    b .Lpi4_storage_write_wait
+.Lpi4_storage_write_cmd_done:
+    mov w15, #PI4_SDHCI_INT_CMD_COMPLETE
+    str w15, [x12, #PI4_SDHCI_INT_STATUS]
+
+    mov x14, #PI4_SDHCI_POLL_LIMIT
+.Lpi4_storage_write_wait_buffer:
+    ldr w13, [x12, #PI4_SDHCI_INT_STATUS]
+    tst w13, #PI4_SDHCI_INT_ERROR
+    b.ne .Lpi4_storage_write_eio
+    ldr w15, [x12, #PI4_SDHCI_PRESENT_STATE]
+    tst w15, #PI4_SDHCI_PRESENT_SPACE_AVAILABLE
+    b.ne .Lpi4_storage_write_buffer_ready
+    subs x14, x14, #1
+    b.ne .Lpi4_storage_write_wait_buffer
+    b .Lpi4_storage_write_wait
+.Lpi4_storage_write_buffer_ready:
+    mov x14, #PI4_SDHCI_PIO_WORDS_PER_SECTOR
+.Lpi4_storage_write_word:
+    ldr w13, [x9], #4
+    str w13, [x12, #PI4_SDHCI_BUFFER]
+    subs x14, x14, #1
+    b.ne .Lpi4_storage_write_word
+    mov w15, #PI4_SDHCI_INT_BUFFER_WRITE_READY
+    str w15, [x12, #PI4_SDHCI_INT_STATUS]
+    dsb sy
+
+    mov x14, #PI4_SDHCI_POLL_LIMIT
+.Lpi4_storage_write_wait_transfer:
+    ldr w13, [x12, #PI4_SDHCI_INT_STATUS]
+    tst w13, #PI4_SDHCI_INT_ERROR
+    b.ne .Lpi4_storage_write_eio
+    tst w13, #PI4_SDHCI_INT_TRANSFER_COMPLETE
+    b.ne .Lpi4_storage_write_done
+    subs x14, x14, #1
+    b.ne .Lpi4_storage_write_wait_transfer
+    b .Lpi4_storage_write_wait
+.Lpi4_storage_write_done:
+    mov w15, #PI4_SDHCI_INT_TRANSFER_COMPLETE
+    str w15, [x12, #PI4_SDHCI_INT_STATUS]
+    dsb sy
+    mov x0, xzr
+    ret
+
+.Lpi4_storage_write_eio:
+    str w13, [x12, #PI4_SDHCI_INT_STATUS]
+    mov x0, #-PI4_STORAGE_ERRNO_EIO
+    ret
+.Lpi4_storage_write_wait:
+    mov x0, #-PI4_STORAGE_ERRNO_WAIT
+    ret
+.Lpi4_storage_write_enosys:
+    mov x0, #-PI4_STORAGE_ERRNO_ENOSYS
+    ret
+.Lpi4_storage_write_einval:
+    mov x0, #-PI4_STORAGE_ERRNO_EINVAL
+    ret
+.size pi4_storage_write_block, . - pi4_storage_write_block
 
 // x0 = SDHCI base, w1 = command register value, w2 = command argument.
 // Returns x0 = 0 and x1 = response0 on command completion, or x0 = -errno.
@@ -1494,6 +1627,11 @@ pi4_storage_parse_fat_root:
     adr x1, pi4_storage_name_doom1_wad
     bl pi4_storage_match_short_name
     cbnz w0, .Lpi4_storage_root_record_doom1
+
+    mov x0, x25
+    adr x1, pi4_storage_name_vibestat_bin
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_root_record_net_status
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_check_directory:
@@ -1583,6 +1721,20 @@ pi4_storage_parse_fat_root:
     orr x1, x1, #1
     str x1, [x0]
     orr x27, x27, #64
+    b .Lpi4_storage_root_next_entry
+
+.Lpi4_storage_root_record_net_status:
+    mov x0, x25
+    mov x1, x26
+    adr x2, pi4_storage_status_net_status_file
+    mov x4, x28
+    mov x5, x19
+    mov x6, x20
+    adr x7, pi4_storage_status_bpb_cluster_count
+    ldr x7, [x7]
+    bl pi4_storage_record_file_read_metadata
+    cbz w0, .Lpi4_storage_root_next_entry
+    orr x27, x27, #PI4_STORAGE_ROOT_FOUND_NET_STATUS
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_record_proof_dir:
@@ -2237,6 +2389,8 @@ pi4_storage_name_abiprobe_elf:
     .ascii "ABIPROBEELF"
 pi4_storage_name_doom1_wad:
     .ascii "DOOM1   WAD"
+pi4_storage_name_vibestat_bin:
+    .ascii "VIBESTATBIN"
 pi4_storage_name_proof_dir:
     .ascii "PROOF      "
 pi4_storage_name_assets_dir:
@@ -2710,6 +2864,22 @@ pi4_storage_status_doom1_wad:
     .quad 0
     .quad 0
     .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_net_status_file
+pi4_storage_status_net_status_file:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_net_status_plan_lba
+pi4_storage_status_net_status_plan_lba:
+    .quad 0
+.global pi4_storage_status_net_status_plan_sectors
+pi4_storage_status_net_status_plan_sectors:
+    .quad 0
+.global pi4_storage_status_net_status_plan_bytes
+pi4_storage_status_net_status_plan_bytes:
     .quad 0
     .quad 0
 .global pi4_storage_status_proof_dir
