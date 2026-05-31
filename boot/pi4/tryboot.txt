@@ -1,0 +1,8 @@
+arm_64bit=1
+kernel=/vibe/kernel8.img
+boot_load_flags=1
+enable_uart=1
+uart_2ndstage=1
+dtoverlay=disable-bt
+kernel_watchdog_timeout=35
+kernel_watchdog_partition=0
