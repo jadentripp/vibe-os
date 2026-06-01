@@ -12404,6 +12404,7 @@ storage_init:
     mov dword [linux_sys_last_nr], 0
     mov dword [linux_sys_last_ret], 0
     mov dword [linux_sys_last_eip], 0
+    mov dword [linux_sys_last_pid], 0xffffffff
     mov dword [linux_sys_last_arg0], 0
     mov dword [linux_sys_last_arg1], 0
     mov dword [linux_sys_last_arg2], 0
@@ -12413,6 +12414,7 @@ storage_init:
     mov dword [linux_sys_error_count], 0
     mov dword [linux_sys_last_error_nr], 0
     mov dword [linux_sys_last_error_ret], 0
+    mov dword [linux_sys_last_error_pid], 0xffffffff
     mov dword [linux_sys_last_error_arg0], 0
     mov dword [linux_sys_last_error_arg1], 0
     mov dword [linux_sys_last_error_arg2], 0
@@ -12749,6 +12751,9 @@ storage_init:
     mov dword [large_elf_demand_stack1], 0
     mov dword [large_elf_demand_stack2], 0
     mov dword [large_elf_demand_stack3], 0
+    mov dword [large_elf_demand_unbiased_status], 0
+    mov dword [large_elf_demand_unbiased_segment], 0
+    mov dword [large_elf_demand_unbiased_offset], 0
     mov dword [linux_syscall_after_demand_sequence], 0
     mov dword [linux_syscall_after_demand_count], 0
     mov dword [linux_syscall_after_demand_nr], 0
@@ -18867,6 +18872,12 @@ scheduler_init:
     mov dword [process_exit_parent_pid], 0xffffffff
     mov dword [process_exit_resumed_pid], 0xffffffff
     mov dword [process_exit_child_ptr], 0
+    mov dword [process_exit_resume_attempts], 0
+    mov dword [process_exit_resume_successes], 0
+    mov dword [process_exit_resume_last_stage], 0
+    mov dword [process_exit_resume_parent_eip], 0
+    mov dword [process_exit_resume_parent_esp], 0
+    mov dword [process_exit_resume_bounds_ok], 0
     mov dword [process_vfork_exec_release_attempts], 0
     mov dword [process_vfork_exec_release_successes], 0
     mov dword [process_vfork_exec_release_failures], 0
@@ -19608,13 +19619,33 @@ process_mark_current_zombie_exited:
     cmp esi, process_kernel
     je .done
     call fd_close_owned_by_process
+    mov eax, [esi + PROC_PID]
+    mov [process_exit_last_pid], eax
     mov [esi + PROC_EXIT_STATUS], ebx
+    mov [process_exit_last_status], ebx
     mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    mov dword [process_exit_last_state], PROC_STATE_EXITED
     and dword [esi + PROC_VM_FLAGS], 0xfffffffe
     inc dword [process_exit_zombies]
 
 .done:
     pop esi
+    ret
+
+process_exit_record_parent_context:
+    push eax
+
+    mov eax, [edi + PROC_SAVED_EIP]
+    mov [process_exit_resume_parent_eip], eax
+    mov eax, [edi + PROC_SAVED_ESP]
+    mov [process_exit_resume_parent_esp], eax
+    mov dword [process_exit_resume_bounds_ok], 0
+    call process_saved_frame_user_bounds_ok
+    jc .done
+    mov dword [process_exit_resume_bounds_ok], 1
+
+.done:
+    pop eax
     ret
 
 process_restore_syscall_context:
@@ -19659,6 +19690,11 @@ process_exit_resume_parent:
     push esi
     push edi
 
+    inc dword [process_exit_resume_attempts]
+    mov dword [process_exit_resume_last_stage], 1
+    mov dword [process_exit_resume_parent_eip], 0
+    mov dword [process_exit_resume_parent_esp], 0
+    mov dword [process_exit_resume_bounds_ok], 0
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .fail
@@ -19704,6 +19740,7 @@ process_exit_resume_parent:
     jne .fail
 
 .found_waitpid_block:
+    mov dword [process_exit_resume_last_stage], 2
     mov esi, [process_exit_child_ptr]
     mov eax, [esi + PROC_PID]
     mov [process_wait_last_reaped_pid], eax
@@ -19744,25 +19781,31 @@ process_exit_resume_parent:
     mov dword [esi + PROC_PARENT_PID], 0xffffffff
     and dword [esi + PROC_VM_FLAGS], ~PROC_FLAGS_TRANSIENT_MASK
     mov esi, edi
+    call process_exit_record_parent_context
     call process_activate
     mov eax, [esi + PROC_PID]
     mov [process_exit_resumed_pid], eax
+    inc dword [process_exit_resume_successes]
     mov ebx, [process_exit_frame_ptr]
     call process_restore_syscall_context
     clc
     jmp .done
 
 .found:
+    mov dword [process_exit_resume_last_stage], 3
     mov esi, edi
+    call process_exit_record_parent_context
     call process_activate
     mov eax, [esi + PROC_PID]
     mov [process_exit_resumed_pid], eax
+    inc dword [process_exit_resume_successes]
     mov ebx, [process_exit_frame_ptr]
     call process_restore_syscall_context
     clc
     jmp .done
 
 .fail:
+    mov dword [process_exit_resume_last_stage], 0xffffffff
     stc
 
 .done:
@@ -22970,6 +23013,9 @@ process_exec_large_linux_preflight:
     mov dword [large_elf_demand_stack1], 0
     mov dword [large_elf_demand_stack2], 0
     mov dword [large_elf_demand_stack3], 0
+    mov dword [large_elf_demand_unbiased_status], 0
+    mov dword [large_elf_demand_unbiased_segment], 0
+    mov dword [large_elf_demand_unbiased_offset], 0
     mov dword [linux_syscall_after_demand_sequence], 0
     mov dword [linux_syscall_after_demand_count], 0
     mov dword [linux_syscall_after_demand_nr], 0
@@ -23648,6 +23694,9 @@ large_elf_demand_page_fault:
     mov dword [large_elf_demand_last_segment], 0
     mov dword [large_elf_demand_last_offset], 0
     mov dword [large_elf_demand_last_copy_len], 0
+    mov dword [large_elf_demand_unbiased_status], 0
+    mov dword [large_elf_demand_unbiased_segment], 0
+    mov dword [large_elf_demand_unbiased_offset], 0
     mov eax, [fault_eip]
     mov [large_elf_demand_last_eip], eax
     mov eax, [fault_esp]
@@ -23680,6 +23729,29 @@ large_elf_demand_page_fault:
     cmp dword [esi + ELF_PH_TYPE], PT_LOAD
     jne .advance
 
+    mov eax, [esi + ELF_PH_VADDR]
+    mov ebx, eax
+    add ebx, [esi + ELF_PH_MEMSZ]
+    jc .biased_scan
+    mov edx, [fault_cr2]
+    cmp edx, eax
+    jb .biased_scan
+    cmp edx, ebx
+    jae .biased_scan
+    mov dword [large_elf_demand_unbiased_status], 1
+    mov [large_elf_demand_unbiased_segment], eax
+    mov edx, [large_elf_demand_last_page]
+    cmp edx, eax
+    jae .unbiased_page_ready
+    mov edx, eax
+
+.unbiased_page_ready:
+    sub edx, eax
+    add edx, [esi + ELF_PH_OFFSET]
+    jc .biased_scan
+    mov [large_elf_demand_unbiased_offset], edx
+
+.biased_scan:
     mov eax, [esi + ELF_PH_VADDR]
     add eax, [large_elf_load_bias]
     jc .advance
@@ -26408,6 +26480,8 @@ linux_syscall_note_enter:
     mov [linux_sys_last_nr], eax
     mov eax, [syscall_entry_eip_last]
     mov [linux_sys_last_eip], eax
+    mov eax, [current_pid]
+    mov [linux_sys_last_pid], eax
     mov [linux_sys_last_arg0], ebx
     mov [linux_sys_last_arg1], ecx
     mov [linux_sys_last_arg2], edx
@@ -26449,6 +26523,8 @@ linux_syscall_note_return:
     inc dword [linux_sys_error_count]
     mov [linux_sys_last_error_nr], ebx
     mov [linux_sys_last_error_ret], eax
+    mov ecx, [linux_sys_last_pid]
+    mov [linux_sys_last_error_pid], ecx
     mov ecx, [linux_sys_last_arg0]
     mov [linux_sys_last_error_arg0], ecx
     mov ecx, [linux_sys_last_arg1]
@@ -39554,6 +39630,12 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [large_elf_demand_last_copy_len]
     call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_unbiased_status]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_unbiased_segment]
+    call smoke_write_slash_hex32
+    mov edx, [large_elf_demand_unbiased_offset]
+    call smoke_write_slash_hex32
     mov esi, smoke_largedctx_text
     call smoke_copy_string
     mov edx, [large_elf_demand_last_eip]
@@ -39835,6 +39917,14 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [linux_sys_last_error_ret]
     call smoke_write_slash_hex32
+    mov edx, [linux_sys_last_pid]
+    call smoke_write_slash_hex32
+    mov edx, [linux_sys_last_error_pid]
+    call smoke_write_slash_hex32
+    mov edx, [fault_pid]
+    call smoke_write_slash_hex32
+    mov edx, [current_pid]
+    call smoke_write_slash_hex32
     mov esi, smoke_linux_arg_text
     call smoke_copy_string
     mov edx, [linux_sys_last_arg0]
@@ -40092,6 +40182,22 @@ write_smoke_status:
     mov edx, [process_exit_zombies]
     call smoke_write_slash_hex32
     mov edx, [process_exit_teardowns]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_attempts]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_successes]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_last_stage]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_parent_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resumed_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_parent_eip]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_parent_esp]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_resume_bounds_ok]
     call smoke_write_slash_hex32
 
     mov esi, smoke_pfault_text
@@ -48304,6 +48410,9 @@ large_elf_demand_stack0 dd 0
 large_elf_demand_stack1 dd 0
 large_elf_demand_stack2 dd 0
 large_elf_demand_stack3 dd 0
+large_elf_demand_unbiased_status dd 0
+large_elf_demand_unbiased_segment dd 0
+large_elf_demand_unbiased_offset dd 0
 linux_mprotect_last_start dd 0
 linux_mprotect_last_end dd 0
 linux_mprotect_last_prot dd 0
@@ -48697,6 +48806,7 @@ linux_syscall_count dd 0
 linux_sys_last_nr dd 0
 linux_sys_last_ret dd 0
 linux_sys_last_eip dd 0
+linux_sys_last_pid dd 0xffffffff
 linux_sys_last_arg0 dd 0
 linux_sys_last_arg1 dd 0
 linux_sys_last_arg2 dd 0
@@ -48706,6 +48816,7 @@ linux_sys_last_arg5 dd 0
 linux_sys_error_count dd 0
 linux_sys_last_error_nr dd 0
 linux_sys_last_error_ret dd 0
+linux_sys_last_error_pid dd 0xffffffff
 linux_sys_last_error_arg0 dd 0
 linux_sys_last_error_arg1 dd 0
 linux_sys_last_error_arg2 dd 0
@@ -48963,6 +49074,12 @@ process_exit_frame_ptr dd 0
 process_exit_parent_pid dd 0xffffffff
 process_exit_resumed_pid dd 0xffffffff
 process_exit_child_ptr dd 0
+process_exit_resume_attempts dd 0
+process_exit_resume_successes dd 0
+process_exit_resume_last_stage dd 0
+process_exit_resume_parent_eip dd 0
+process_exit_resume_parent_esp dd 0
+process_exit_resume_bounds_ok dd 0
 fd_fork_parent_pid dd 0xffffffff
 fd_fork_child_pid dd 0xffffffff
 payload_exec_table:

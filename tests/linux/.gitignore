@@ -5,6 +5,11 @@ auxv_dump
 tls_probe
 startup_probe
 exec_limits_probe
+execve_probe
+vfork_exec_probe
+vfork_child_probe
+vfork_exit_group_probe
+vfork_exit_group_child
 dir_probe
 fd_probe
 dev_null_probe
@@ -15,6 +20,7 @@ tmp_dir_probe
 procid_probe
 libmagic_probe
 ldso_header_probe
+ldso_reloc_probe
 writev_probe
 eventfd_probe
 epoll_probe
