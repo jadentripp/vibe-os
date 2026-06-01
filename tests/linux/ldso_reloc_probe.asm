@@ -10,12 +10,18 @@ global start
 %define SYS_EXIT    1
 %define SYS_WRITE   4
 %define SYS_CLOSE   6
+%define SYS_MUNMAP  91
+%define SYS_MPROTECT 125
 %define SYS_PREAD64 180
+%define SYS_MMAP2   192
 %define SYS_OPENAT  295
 
 %define AT_FDCWD    0xffffff9c
 %define O_RDONLY    0x00000000
 %define O_CLOEXEC   0x00080000
+%define PROT_READ   0x00000001
+%define MAP_PRIVATE 0x00000002
+%define MAP_FIXED   0x00000010
 
 %define ELF_MAGIC       0x464c457f
 %define ELFCLASS32      1
@@ -30,6 +36,10 @@ global start
 %define DYN_BUF_SIZE    4096
 %define REL_BUF_SIZE    4096
 %define REL_CHUNK_ENTS  512
+%define MMAP_PRESSURE_BASE        0x02000000
+%define MMAP_PRESSURE_LEN         0x01000000
+%define MMAP_PRESSURE_FILE_OFFSET 0x08000000
+%define MMAP_PRESSURE_PGOFF       0x00008000
 
 %define PT_LOAD     1
 %define PT_DYNAMIC  2
@@ -80,6 +90,8 @@ start:
     jc .rel_tag_fail
     call check_relative_relocs
     jc .rel_scan_fail
+    call check_chromium_mmap_pressure
+    jc .mmap_pressure_fail
 
     call print_summary
 
@@ -113,6 +125,8 @@ start:
     FAIL 0x08
 .rel_scan_fail:
     FAIL 0x09
+.mmap_pressure_fail:
+    FAIL 0x0a
 
 fail:
     movzx eax, byte [fail_code]
@@ -149,6 +163,66 @@ pread_exact:
     jne .fail
     clc
     ret
+
+.fail:
+    stc
+    ret
+
+check_chromium_mmap_pressure:
+    mov ecx, mmap_head_buf
+    mov edx, 4
+    mov esi, MMAP_PRESSURE_FILE_OFFSET
+    call pread_exact
+    jc .fail
+
+    mov eax, SYS_MMAP2
+    mov ebx, MMAP_PRESSURE_BASE
+    mov ecx, MMAP_PRESSURE_LEN
+    mov edx, PROT_READ
+    mov esi, MAP_PRIVATE | MAP_FIXED
+    mov edi, [fd]
+    mov ebp, MMAP_PRESSURE_PGOFF
+    int 0x80
+    cmp eax, MMAP_PRESSURE_BASE
+    jne .fail
+
+    mov eax, [mmap_head_buf]
+    cmp eax, [MMAP_PRESSURE_BASE]
+    jne .fail_unmap
+
+    mov ecx, mmap_tail_buf
+    mov edx, 4
+    mov esi, MMAP_PRESSURE_FILE_OFFSET + MMAP_PRESSURE_LEN - 4
+    call pread_exact
+    jc .fail_unmap
+
+    mov eax, [mmap_tail_buf]
+    cmp eax, [MMAP_PRESSURE_BASE + MMAP_PRESSURE_LEN - 4]
+    jne .fail_unmap
+
+    mov eax, SYS_MPROTECT
+    mov ebx, MMAP_PRESSURE_BASE
+    mov ecx, MMAP_PRESSURE_LEN
+    mov edx, PROT_READ
+    int 0x80
+    test eax, eax
+    jne .fail_unmap
+
+    mov eax, SYS_MUNMAP
+    mov ebx, MMAP_PRESSURE_BASE
+    mov ecx, MMAP_PRESSURE_LEN
+    int 0x80
+    test eax, eax
+    jne .fail
+
+    clc
+    ret
+
+.fail_unmap:
+    mov eax, SYS_MUNMAP
+    mov ebx, MMAP_PRESSURE_BASE
+    mov ecx, MMAP_PRESSURE_LEN
+    int 0x80
 
 .fail:
     stc
@@ -587,3 +661,5 @@ phdr_buf:           resb PHDR_MAX * ELF32_PHDR_SIZE
 dyn_buf:            resb DYN_BUF_SIZE
 rel_buf:            resb REL_BUF_SIZE
 one_rel_buf:        resb 8
+mmap_head_buf:      resb 4
+mmap_tail_buf:      resb 4
