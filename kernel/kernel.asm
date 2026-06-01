@@ -1231,6 +1231,7 @@ ERRNO_EINVAL equ 22
 ERRNO_EMFILE equ 24
 ERRNO_ENOTTY equ 25
 ERRNO_ENOSPC equ 28
+ERRNO_ESPIPE equ 29
 ERRNO_ENOSYS equ 38
 ERRNO_ENOTSOCK equ 88
 ERRNO_ENOPROTOOPT equ 92
@@ -22315,6 +22316,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_dev_null
 
+    mov edi, exec_path_linux_llseek
+    call kernel_streq
+    cmp al, 1
+    je .linux_llseek
+
     mov edi, exec_path_linux_pipe
     call kernel_streq
     cmp al, 1
@@ -22550,6 +22556,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_dev_null_elf_name_83
+    jmp .linux_bin_app
+
+.linux_llseek:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_llseek_elf_name_83
     jmp .linux_bin_app
 
 .linux_pipe:
@@ -24975,6 +24988,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_DEV_NULL_SMOKE
     mov esi, exec_path_linux_dev_null
 %endif
+%ifdef LINUX_M1_LLSEEK_SMOKE
+    mov esi, exec_path_linux_llseek
+%endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
 %endif
@@ -25101,6 +25117,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_DEV_NULL_SMOKE
     mov esi, exec_path_linux_dev_null
+%endif
+%ifdef LINUX_M1_LLSEEK_SMOKE
+    mov esi, exec_path_linux_llseek
 %endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
@@ -26556,6 +26575,17 @@ LINUX_M1_STATUS_WRITE_LIMIT equ 96
 LINUX_M1_STATUS_SYSCALL_STRIDE equ 128
 LINUX_M1_STATUS_DEMAND_STRIDE equ 128
 
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifndef LINUX_SYNTHETIC_FILE_SMOKE
+%define LINUX_SYNTHETIC_FILE_SMOKE
+%endif
+%endif
+%ifdef LINUX_M1_LLSEEK_SMOKE
+%ifndef LINUX_SYNTHETIC_FILE_SMOKE
+%define LINUX_SYNTHETIC_FILE_SMOKE
+%endif
+%endif
+
 ; linux_syscall_unimpl: default handler for unimplemented Linux syscalls.
 ; Records the number for guest-status proof and returns -ENOSYS in EAX
 ; (vibe-os negative-errno convention).
@@ -26999,7 +27029,7 @@ linux_path_is_dev_urandom:
     pop eax
     ret
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 linux_path_get_synthetic_file:
     push ebx
     push edi
@@ -28472,7 +28502,7 @@ linux_dev_urandom_read:
     mov eax, -ERRNO_EINVAL
     ret
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 linux_synthetic_file_read:
     mov esi, [file_io_fd_slot]
     mov eax, [fd_flags + esi * 4]
@@ -28595,7 +28625,7 @@ linux_sys_readlink:
     mov [syscall_ptr_arg], ebx
     call linux_path_is_proc_self_exe
     jnc .self_exe
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     call linux_path_get_synthetic_file
     jc .enoent
     cmp eax, LINUX_SYNTHETIC_FILE_FD0
@@ -31298,7 +31328,7 @@ linux_stat_path_common:
     jnc .dev_urandom
     call linux_path_is_proc_self_exe
     jnc .proc_self_exe
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     call linux_path_get_synthetic_file
     jnc .synthetic_file
 %endif
@@ -31383,7 +31413,7 @@ linux_stat_path_common:
     mov edx, STAT_MODE_READONLY_REG
     jmp .found
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .synthetic_file:
     add eax, 128
     mov [stat_inode_arg], eax
@@ -31477,7 +31507,7 @@ linux_fstat64_common:
     je .pipe
     cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
     je .pipe
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
     je .synthetic_file
 %endif
@@ -31503,7 +31533,7 @@ linux_fstat64_common:
     mov edx, STAT_MODE_READONLY_REG
     jmp .fill
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .synthetic_file:
     mov edx, [fd_indices + eax * 4]
     mov [stat_inode_arg], edx
@@ -31565,13 +31595,24 @@ linux_fstat64_common:
     ret
 
 linux_sys_llseek:
+    test edx, 0x80000000
+    jz .offset_nonnegative
+    cmp ecx, 0xffffffff
+    jne .einval
+    jmp .offset32_ready
+
+.offset_nonnegative:
     cmp ecx, 0
     jne .einval
+
+.offset32_ready:
+    push ebx
     mov [syscall_ptr_arg], esi
     mov eax, esi
     mov ebx, 8
     call user_range_validate
-    jc .einval
+    pop ebx
+    jc .efault
     push esi
     mov ecx, edx
     mov edx, edi
@@ -31579,10 +31620,28 @@ linux_sys_llseek:
     jc .ebadf_pop
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
     je .synthetic_file
 %endif
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    je .directory_file
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_NULL
+    je .zero_offset_file
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_ZERO
+    je .zero_offset_file
+    cmp byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
+    je .zero_offset_file
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_READ
+    je .espipe_pop
+    cmp byte [fd_kinds + eax], FD_KIND_PIPE_WRITE
+    je .espipe_pop
+    cmp byte [fd_kinds + eax], FD_KIND_EVENTFD
+    je .espipe_pop
+    cmp byte [fd_kinds + eax], FD_KIND_EPOLL
+    je .espipe_pop
+    cmp byte [fd_kinds + eax], FD_KIND_TIMERFD
+    je .espipe_pop
     call user_file_lseek
     jc .from_eax
     jmp .store_result
@@ -31592,7 +31651,7 @@ linux_sys_llseek:
     jc .from_eax
     jmp .store_result
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .synthetic_file:
     pop edi
     push edi
@@ -31639,6 +31698,49 @@ linux_sys_llseek:
     jmp .store_result
 %endif
 
+.directory_file:
+    cmp edx, 0
+    je .directory_seek_set
+    cmp edx, 1
+    je .directory_seek_cur
+    jmp .einval_pop
+
+.directory_seek_set:
+    mov eax, ecx
+    test eax, 0x80000000
+    jnz .einval_pop
+    jmp .directory_seek_store
+
+.directory_seek_cur:
+    mov eax, [file_io_fd_slot]
+    mov eax, [fd_offsets + eax * 4]
+    add eax, ecx
+    jo .einval_pop
+    test eax, 0x80000000
+    jnz .einval_pop
+
+.directory_seek_store:
+    mov ebx, [file_io_fd_slot]
+    mov [fd_offsets + ebx * 4], eax
+    jmp .store_result
+
+.zero_offset_file:
+    cmp edx, 0
+    je .zero_offset_seek
+    cmp edx, 1
+    je .zero_offset_seek
+    cmp edx, 2
+    je .zero_offset_seek
+    jmp .einval_pop
+
+.zero_offset_seek:
+    cmp ecx, 0
+    jne .einval_pop
+    mov ebx, [file_io_fd_slot]
+    mov dword [fd_offsets + ebx * 4], 0
+    xor eax, eax
+    jmp .store_result
+
 .store_result:
     pop edi
     mov [edi], eax
@@ -31655,11 +31757,20 @@ linux_sys_llseek:
     mov eax, -ERRNO_EBADF
     ret
 
+.espipe_pop:
+    pop esi
+    mov eax, -ERRNO_ESPIPE
+    ret
+
 .einval_pop:
     pop esi
 
 .einval:
     mov eax, -ERRNO_EINVAL
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
     ret
 
 linux_sys_pread64:
@@ -31671,7 +31782,7 @@ linux_sys_pread64:
     mov [fd_offsets + eax * 4], esi
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .readonly_file
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
     je .synthetic_file
 %endif
@@ -31682,7 +31793,7 @@ linux_sys_pread64:
     call readonly_file_read
     jmp .restore
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .synthetic_file:
     call linux_synthetic_file_read
     jmp .restore
@@ -32635,7 +32746,7 @@ syscall_handler:
     jnc .open_dev_urandom_pop_bind
     call linux_path_is_proc_self_exe
     jnc .open_proc_self_exe_pop_lookup
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     call linux_path_get_synthetic_file
     jnc .open_synthetic_file_pop_bind
 %endif
@@ -32698,7 +32809,7 @@ syscall_handler:
     jnz .bad_syscall_eisdir
     jmp .open_generic_bind_readonly
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .open_synthetic_file_pop_bind:
     pop ebx
     mov [linux_synthetic_file_id_arg], eax
@@ -33019,7 +33130,7 @@ syscall_handler:
     je .read_dev_zero
     cmp byte [fd_kinds + eax], FD_KIND_DEV_URANDOM
     je .read_dev_urandom
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
     je .read_synthetic_file
 %endif
@@ -33049,7 +33160,7 @@ syscall_handler:
     call linux_dev_urandom_read
     jmp .return
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .read_synthetic_file:
     call linux_synthetic_file_read
     jmp .return
@@ -33133,7 +33244,7 @@ syscall_handler:
     je .lseek_primary_asset
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .lseek_readonly_file
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
     cmp byte [fd_kinds + eax], FD_KIND_SYNTHETIC_FILE
     je .lseek_synthetic_file
 %endif
@@ -33141,7 +33252,7 @@ syscall_handler:
     jc .bad_syscall_from_eax
     jmp .return
 
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 .lseek_synthetic_file:
     cmp edx, 0
     je .seek_set_synthetic
@@ -47175,6 +47286,7 @@ linux_vfork_exit_group_child_elf_name_83 db "VFORKXG ELF"
 linux_dir_elf_name_83 db "DIR     ELF"
 linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
+linux_llseek_elf_name_83 db "LLSEEK  ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
 linux_rseq_elf_name_83 db "RSEQ    ELF"
@@ -47225,6 +47337,7 @@ exec_path_linux_vfork_exit_group_child db "/BIN/VFORKXG.ELF", 0
 exec_path_linux_dir db "/BIN/DIR.ELF", 0
 exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
+exec_path_linux_llseek db "/BIN/LLSEEK.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
@@ -47590,7 +47703,7 @@ linux_chromium_resource_alias_dir_table:
     dd chromium_dir_name_83
     dd chromium_dir_name_83
 %endif
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 linux_synthetic_cmdline_text db "chromium", 0
 linux_synthetic_cmdline_text_end:
 linux_synthetic_status_text db "Name:", 9, "chromium", 10, "State:", 9, "R (running)", 10
@@ -49109,6 +49222,8 @@ linux_library_alias_name_buffer times 11 db 0
 %ifdef LINUX_M1_CHROMIUM_SMOKE
 linux_chromium_resource_name_ptr dd 0
 linux_chromium_resource_dir_ptr dd chromium_dir_name_83
+%endif
+%ifdef LINUX_SYNTHETIC_FILE_SMOKE
 linux_synthetic_file_id_arg dd 0
 %endif
 linux_relative_synthetic_dir_arg dd 0
