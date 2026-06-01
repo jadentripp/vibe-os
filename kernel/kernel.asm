@@ -22320,6 +22320,13 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_fork
 
+%ifdef LINUX_M1_CLONE3_SMOKE
+    mov edi, exec_path_linux_clone3
+    call kernel_streq
+    cmp al, 1
+    je .linux_clone3_probe
+%endif
+
     mov edi, exec_path_linux_proc_self_exe
     call kernel_streq
     cmp al, 1
@@ -22548,6 +22555,15 @@ process_exec_resolve_app_path:
     mov ebx, esi
     mov esi, linux_fork_elf_name_83
     jmp .linux_bin_app
+
+%ifdef LINUX_M1_CLONE3_SMOKE
+.linux_clone3_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_clone3_elf_name_83
+    jmp .linux_bin_app
+%endif
 
 .linux_proc_self_exe:
     call process_alloc_generic_exec_slot
@@ -24888,6 +24904,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_FORK_SMOKE
     mov esi, exec_path_linux_fork
 %else
+%ifdef LINUX_M1_CLONE3_SMOKE
+    mov esi, exec_path_linux_clone3
+%else
 %ifdef LINUX_M1_PIPE_SMOKE
     mov esi, exec_path_linux_pipe
 %else
@@ -24913,6 +24932,7 @@ linux_m1_smoke_launch:
     mov esi, exec_path_linux_auxv
 %else
     mov esi, exec_path_linux_hello
+%endif
 %endif
 %endif
 %endif
@@ -25009,6 +25029,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_FORK_SMOKE
     mov esi, exec_path_linux_fork
 %else
+%ifdef LINUX_M1_CLONE3_SMOKE
+    mov esi, exec_path_linux_clone3
+%else
 %ifdef LINUX_M1_PIPE_SMOKE
     mov esi, exec_path_linux_pipe
 %else
@@ -25034,6 +25057,7 @@ linux_m1_smoke_launch:
     mov esi, exec_path_linux_auxv
 %else
     mov esi, exec_path_linux_hello
+%endif
 %endif
 %endif
 %endif
@@ -26353,9 +26377,30 @@ LINUX_SYS_SETSOCKOPT equ 366
 LINUX_SYS_STATX equ 383
 LINUX_SYS_RSEQ equ 386
 LINUX_SYS_CLOCK_GETTIME64 equ 403
+LINUX_SYS_CLONE3 equ 435
 LINUX_SOCKETCALL_SOCKETPAIR equ 8
 LINUX_SOCKETCALL_SETSOCKOPT equ 14
 LINUX_SIGCHLD equ 17
+LINUX_CLONE_ARGS_FLAGS equ 0
+LINUX_CLONE_ARGS_FLAGS_HI equ 4
+LINUX_CLONE_ARGS_PIDFD equ 8
+LINUX_CLONE_ARGS_PIDFD_HI equ 12
+LINUX_CLONE_ARGS_CHILD_TID equ 16
+LINUX_CLONE_ARGS_CHILD_TID_HI equ 20
+LINUX_CLONE_ARGS_PARENT_TID equ 24
+LINUX_CLONE_ARGS_PARENT_TID_HI equ 28
+LINUX_CLONE_ARGS_EXIT_SIGNAL equ 32
+LINUX_CLONE_ARGS_EXIT_SIGNAL_HI equ 36
+LINUX_CLONE_ARGS_STACK equ 40
+LINUX_CLONE_ARGS_STACK_HI equ 44
+LINUX_CLONE_ARGS_STACK_SIZE equ 48
+LINUX_CLONE_ARGS_STACK_SIZE_HI equ 52
+LINUX_CLONE_ARGS_TLS equ 56
+LINUX_CLONE_ARGS_TLS_HI equ 60
+LINUX_CLONE_ARGS_SET_TID equ 64
+LINUX_CLONE_ARGS_SET_TID_SIZE equ 72
+LINUX_CLONE_ARGS_CGROUP equ 80
+LINUX_CLONE_ARGS_SIZE_VER2 equ 88
 LINUX_CLONE_VM equ 0x00000100
 LINUX_CLONE_VFORK equ 0x00004000
 LINUX_CLONE_SETTLS equ 0x00080000
@@ -35386,6 +35431,8 @@ syscall_handler:
     je .linux_rseq
     cmp eax, LINUX_SYS_CLOCK_GETTIME64
     je .linux_clock_gettime64
+    cmp eax, LINUX_SYS_CLONE3
+    je .linux_clone3
     call linux_syscall_unimpl       ; eax = -ENOSYS
     jmp .return
 
@@ -35809,6 +35856,74 @@ syscall_handler:
     jne .bad_syscall_einval
     jmp .waitpid
 
+.linux_clone3:
+    cmp ecx, LINUX_CLONE_ARGS_SIZE_VER2
+    jne .bad_syscall_einval
+    mov eax, ebx
+    mov ebx, ecx
+    call user_range_validate
+    jc .linux_clone_efault
+    cmp dword [eax + LINUX_CLONE_ARGS_FLAGS_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_PIDFD], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_PIDFD_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_CHILD_TID_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_PARENT_TID_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_EXIT_SIGNAL], LINUX_SIGCHLD
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_EXIT_SIGNAL_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_STACK_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_STACK_SIZE_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_TLS_HI], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_SET_TID], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_SET_TID_SIZE], 0
+    jne .linux_clone3_unsupported
+    cmp dword [eax + LINUX_CLONE_ARGS_CGROUP], 0
+    jne .linux_clone3_unsupported
+    mov ebx, [eax + LINUX_CLONE_ARGS_FLAGS]
+    test ebx, 0x000000ff
+    jnz .linux_clone3_unsupported
+    mov ecx, [eax + LINUX_CLONE_ARGS_STACK]
+    mov esi, [eax + LINUX_CLONE_ARGS_STACK_SIZE]
+    cmp ecx, 0
+    jne .linux_clone3_stack_nonzero
+    cmp esi, 0
+    jne .bad_syscall_einval
+    jmp .linux_clone3_stack_ready
+
+.linux_clone3_stack_nonzero:
+    cmp esi, 0
+    je .bad_syscall_einval
+    push eax
+    mov eax, ecx
+    mov ebx, esi
+    call user_range_validate
+    pop eax
+    jc .linux_clone_efault
+    add ecx, esi
+    jc .bad_syscall_einval
+
+.linux_clone3_stack_ready:
+    mov ebx, [eax + LINUX_CLONE_ARGS_FLAGS]
+    or ebx, LINUX_SIGCHLD
+    mov edx, [eax + LINUX_CLONE_ARGS_PARENT_TID]
+    mov esi, [eax + LINUX_CLONE_ARGS_TLS]
+    mov edi, [eax + LINUX_CLONE_ARGS_CHILD_TID]
+    jmp .linux_clone
+
+.linux_clone3_unsupported:
+    mov dword [linux_last_unimpl_nr], LINUX_SYS_CLONE3
+    jmp .bad_syscall_enosys
+
 .linux_clone:
     inc dword [linux_clone_calls]
     mov [linux_clone_last_flags], ebx
@@ -35841,7 +35956,7 @@ syscall_handler:
 .linux_clone_stack_ready:
     cmp ecx, 0
     je .linux_clone_stack_valid
-    mov eax, ecx
+    lea eax, [ecx - 4]
     mov ebx, 4
     call user_range_validate
     jc .linux_clone_efault
@@ -36038,7 +36153,8 @@ syscall_handler:
 
 .linux_clone_unsupported:
     inc dword [linux_clone_failures]
-    mov dword [linux_last_unimpl_nr], LINUX_SYS_CLONE
+    mov eax, [current_syscall_number]
+    mov [linux_last_unimpl_nr], eax
     mov eax, -ERRNO_ENOSYS
     mov [linux_clone_last_result], eax
     jmp .bad_syscall_from_eax
@@ -46973,6 +47089,9 @@ linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
+%ifdef LINUX_M1_CLONE3_SMOKE
+linux_clone3_elf_name_83 db "CLONE3  ELF"
+%endif
 linux_proc_self_exe_elf_name_83 db "PROCEXE ELF"
 linux_procid_elf_name_83 db "PROCID  ELF"
 linux_libmagic_elf_name_83 db "LIBMAGICELF"
@@ -47019,6 +47138,9 @@ exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
+%ifdef LINUX_M1_CLONE3_SMOKE
+exec_path_linux_clone3 db "/BIN/CLONE3.ELF", 0
+%endif
 exec_path_linux_proc_self_exe db "/BIN/PROCEXE.ELF", 0
 exec_path_linux_procid db "/BIN/PROCID.ELF", 0
 exec_path_linux_libmagic db "/BIN/LIBMAGIC.ELF", 0

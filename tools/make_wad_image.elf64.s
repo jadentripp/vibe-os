@@ -2247,7 +2247,7 @@ install_bootable_layout:                # @install_bootable_layout
 	movq	%r13, %r12
 	movq	%r13, %rdi
 	callq	read_file
-	cmpq	$229377, %rdx                   # imm = 0x38001
+	cmpq	$229889, %rdx                   # imm = 0x38201
 	jae	.LBB3_542
 # %bb.5:
 	movq	%rax, %r14
@@ -4476,7 +4476,7 @@ install_bootable_layout:                # @install_bootable_layout
 	movw	%ax, 25310(%r12)
 	movl	96(%rsp), %eax
 	movl	%eax, 25306(%r12)
-	movabsq	$240518193892, %rax             # imm = 0x38000062E4
+	movabsq	$241055064804, %rax             # imm = 0x38200062E4
 	movq	%rax, 368(%r14)
 	movabsq	$6000559713039960403, %rax      # imm = 0x5346454445444953
 	leaq	655353(%rax), %rcx
@@ -4502,7 +4502,7 @@ install_bootable_layout:                # @install_bootable_layout
 	movl	%ecx, 25349(%r12)
 	movzbl	156(%rsp), %ecx
 	movb	%cl, 25353(%r12)
-	movabsq	$985166713389058, %rcx          # imm = 0x38000FFFF0002
+	movabsq	$987365736644610, %rcx          # imm = 0x38200FFFF0002
 	movq	%rcx, 25354(%r12)
 	movb	$1, 25362(%r12)
 	movl	144(%rsp), %ecx
@@ -4579,7 +4579,7 @@ install_bootable_layout:                # @install_bootable_layout
 	movl	%eax, 25539(%r12)
 	movzbl	124(%rsp), %eax
 	movb	%al, 25543(%r12)
-	movl	$229376, 25544(%r12)            # imm = 0x38000
+	movl	$229888, 25544(%r12)            # imm = 0x38200
 	movw	$16384, 25548(%r12)             # imm = 0x4000
 	movb	$3, 25550(%r12)
 	movzbl	116(%rsp), %eax
@@ -14208,7 +14208,7 @@ install_bootable_layout.cold.2:         # @install_bootable_layout.cold.2
 	movq	(%rax), %rdi
 	leaq	.L.str.316(%rip), %rsi
 	leaq	.L.str.314(%rip), %rdx
-	movl	$229376, %r8d                   # imm = 0x38000
+	movl	$229888, %r8d                   # imm = 0x38200
 	xorl	%eax, %eax
 	callq	fprintf@PLT
 	pushq	$1
