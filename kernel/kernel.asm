@@ -648,6 +648,11 @@ PROCESS_FORK_FAIL_ALIAS_MAP equ 4
 PROCESS_FORK_FAIL_CHILD_PTE equ 5
 PROCESS_FORK_FAIL_FD_CLONE equ 6
 PROCESS_FORK_FAIL_UNSUPPORTED equ 7
+PROCESS_VFORK_EXEC_RELEASE_NONE equ 0
+PROCESS_VFORK_EXEC_RELEASE_SHARED_VM equ 1
+PROCESS_VFORK_EXEC_RELEASE_PARENT_MISSING equ 2
+PROCESS_VFORK_EXEC_RELEASE_PARENT_NOT_BLOCKED equ 3
+PROCESS_VFORK_EXEC_RELEASE_OBJECT_MISMATCH equ 4
 PROCESS_RECORD_BYTES equ 248
 PERSONALITY_NATIVE equ 0
 PERSONALITY_LINUX equ 1
@@ -18802,6 +18807,13 @@ scheduler_init:
     mov dword [process_exit_parent_pid], 0xffffffff
     mov dword [process_exit_resumed_pid], 0xffffffff
     mov dword [process_exit_child_ptr], 0
+    mov dword [process_vfork_exec_release_attempts], 0
+    mov dword [process_vfork_exec_release_successes], 0
+    mov dword [process_vfork_exec_release_failures], 0
+    mov dword [process_vfork_exec_release_last_stage], PROCESS_VFORK_EXEC_RELEASE_NONE
+    mov dword [process_vfork_exec_release_last_parent_pid], 0xffffffff
+    mov dword [process_vfork_exec_release_last_child_pid], 0xffffffff
+    mov dword [process_vfork_exec_release_last_target_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -19480,6 +19492,21 @@ process_retire_exec_slot:
     call process_teardown_user_vm
     inc dword [process_exec_teardowns]
     mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    and dword [esi + PROC_VM_FLAGS], ~PROC_FLAGS_TRANSIENT_MASK
+
+.done:
+    ret
+
+process_retire_vfork_exec_slot:
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    call process_teardown_user_vm
+    inc dword [process_exec_teardowns]
+    mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    mov dword [esi + PROC_PID], 0xffffffff
+    mov dword [esi + PROC_PARENT_PID], 0xffffffff
     and dword [esi + PROC_VM_FLAGS], ~PROC_FLAGS_TRANSIENT_MASK
 
 .done:
@@ -22130,6 +22157,21 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_exec_limits
 
+    mov edi, exec_path_linux_execve_probe
+    call kernel_streq
+    cmp al, 1
+    je .linux_execve_probe
+
+    mov edi, exec_path_linux_vfork_exec_probe
+    call kernel_streq
+    cmp al, 1
+    je .linux_vfork_exec_probe
+
+    mov edi, exec_path_linux_vfork_child_probe
+    call kernel_streq
+    cmp al, 1
+    je .linux_vfork_child_probe
+
     mov edi, exec_path_linux_dir
     call kernel_streq
     cmp al, 1
@@ -22194,6 +22236,18 @@ process_exec_resolve_app_path:
     call kernel_streq
     cmp al, 1
     je .linux_chromium
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+    mov edi, linux_path_usr_lib_chromium_crashpad
+    call kernel_streq
+    cmp al, 1
+    je .linux_chromium_crashpad
+
+    mov edi, linux_path_bin_chromium_crashpad
+    call kernel_streq
+    cmp al, 1
+    je .linux_chromium_crashpad
+%endif
 
     mov edi, exec_path_primary_payload
     call kernel_streq
@@ -22295,6 +22349,27 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_exec_limits_elf_name_83
+    jmp .linux_bin_app
+
+.linux_execve_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_execve_probe_elf_name_83
+    jmp .linux_bin_app
+
+.linux_vfork_exec_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_vfork_exec_probe_elf_name_83
+    jmp .linux_bin_app
+
+.linux_vfork_child_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_vfork_child_probe_elf_name_83
     jmp .linux_bin_app
 
 .linux_dir:
@@ -22416,6 +22491,30 @@ process_exec_resolve_app_path:
     mov dword [process_exec_target_personality], PERSONALITY_LINUX
     clc
     jmp .done
+
+%ifdef LINUX_M1_CHROMIUM_SMOKE
+.linux_chromium_crashpad:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, chromium_crashpad_name_83
+    mov edi, process_exec_name83_buffer
+    call process_exec_copy_name83
+    mov esi, chromium_dir_name_83
+    mov edi, process_exec_dir1_name83_buffer
+    call process_exec_copy_name83
+    mov byte [process_exec_lookup_depth], 1
+    inc dword [process_exec_generic_resolves]
+    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_APP_PATH
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
+    mov [process_exec_target], ebx
+    mov dword [process_exec_target_kind], USER_KIND_GENERIC
+    mov dword [process_exec_target_personality], PERSONALITY_LINUX
+    clc
+    jmp .done
+%endif
 
 .doom_app:
     mov eax, USER_KIND_PAYLOAD_PRIMARY
@@ -23837,6 +23936,7 @@ process_exec_handoff_current:
     mov eax, [edi + PROC_PID]
     mov edx, [esi + PROC_PID]
     call fd_exec_handoff
+    call process_exec_adopt_vfork_identity
     call input_reset_queue
     call keyboard_reset_queue
     call mouse_reset_queue
@@ -23847,7 +23947,15 @@ process_exec_handoff_current:
     call scheduler_prepare_live_preempt_probe
 
 .activate_target:
+    test dword [edi + PROC_VM_FLAGS], PROC_FLAG_SHARED_VM
+    jnz .activate_vfork_target
     mov eax, [edi + PROC_PID]
+    jmp .activate_parent_ready
+
+.activate_vfork_target:
+    mov eax, [edi + PROC_PARENT_PID]
+
+.activate_parent_ready:
     mov [esi + PROC_PARENT_PID], eax
     call process_activate
     call process_exec_seed_argv_stack
@@ -23868,11 +23976,43 @@ process_exec_handoff_current:
     inc dword [esi + PROC_EXEC_COUNT]
     call process_exec_patch_syscall_frame
     jc .eio_after_activate
+    test dword [edi + PROC_VM_FLAGS], PROC_FLAG_SHARED_VM
+    jnz .vfork_exec_target_return
     push esi
     mov esi, edi
     call process_retire_exec_slot
     pop esi
 
+    mov eax, [esi + PROC_PID]
+    mov [scheduler_next_pid], eax
+    mov [scheduler_next_process_ptr], esi
+    inc dword [sys_exec_scheduled]
+    inc dword [sys_exec_handoffs]
+    clc
+    jmp .done
+
+.vfork_exec_target_return:
+    call process_exec_release_vfork_parent
+    jc .patch_vfork_target_frame
+    push esi
+    mov esi, edi
+    call process_retire_vfork_exec_slot
+    pop esi
+    mov eax, [esi + PROC_PID]
+    mov [scheduler_next_pid], eax
+    mov [scheduler_next_process_ptr], esi
+    inc dword [sys_exec_scheduled]
+    inc dword [sys_exec_handoffs]
+    clc
+    jmp .done
+
+.patch_vfork_target_frame:
+    call process_exec_patch_syscall_frame
+    jc .eio_after_activate
+    push esi
+    mov esi, edi
+    call process_retire_exec_slot
+    pop esi
     mov eax, [esi + PROC_PID]
     mov [scheduler_next_pid], eax
     mov [scheduler_next_process_ptr], esi
@@ -23904,6 +24044,118 @@ process_exec_handoff_current:
     stc
 
 .done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+process_exec_adopt_vfork_identity:
+    push eax
+    cmp edi, 0
+    je .done
+    cmp esi, 0
+    je .done
+    test dword [edi + PROC_VM_FLAGS], PROC_FLAG_SHARED_VM
+    jz .done
+    mov eax, [edi + PROC_PID]
+    mov [esi + PROC_PID], eax
+    mov eax, [edi + PROC_PARENT_PID]
+    mov [esi + PROC_PARENT_PID], eax
+
+.done:
+    pop eax
+    ret
+
+process_exec_release_vfork_parent:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    push ebp
+
+    cmp edi, 0
+    je .done
+    cmp esi, 0
+    je .done
+    test dword [edi + PROC_VM_FLAGS], PROC_FLAG_SHARED_VM
+    jz .done
+    inc dword [process_vfork_exec_release_attempts]
+    mov dword [process_vfork_exec_release_last_stage], PROCESS_VFORK_EXEC_RELEASE_SHARED_VM
+    mov eax, [edi + PROC_PID]
+    mov [process_vfork_exec_release_last_child_pid], eax
+    mov eax, [esi + PROC_PID]
+    mov [process_vfork_exec_release_last_target_pid], eax
+    mov edx, [edi + PROC_PARENT_PID]
+    mov [process_vfork_exec_release_last_parent_pid], edx
+    cmp edx, 0xffffffff
+    je .parent_missing
+    mov ebx, [edi + PROC_PID]
+    mov edi, process_table
+    xor ebp, ebp
+    mov ecx, PROCESS_SLOT_COUNT
+
+.scan_parent:
+    cmp ecx, 0
+    je .parent_missing
+    cmp [edi + PROC_PID], edx
+    je .parent_found
+    add edi, PROCESS_RECORD_BYTES
+    inc ebp
+    dec ecx
+    jmp .scan_parent
+
+.parent_found:
+    cmp dword [edi + PROC_STATE], PROC_STATE_BLOCKED
+    jne .parent_not_blocked
+    mov eax, [scheduler_sleep_reasons + ebp * 4]
+    cmp eax, PROC_BLOCK_WAITPID
+    jne .parent_not_blocked
+    mov eax, [scheduler_block_objects + ebp * 4]
+    cmp eax, 0xffffffff
+    je .release_parent
+    cmp eax, ebx
+    jne .object_mismatch
+
+.release_parent:
+    mov [edi + PROC_SAVED_EAX], ebx
+    mov dword [edi + PROC_STATE], PROC_STATE_READY
+    mov eax, [scheduler_sleep_reasons + ebp * 4]
+    mov [scheduler_block_last_wake_reason], eax
+    mov eax, [edi + PROC_PID]
+    mov [scheduler_block_last_woken_pid], eax
+    mov dword [scheduler_sleep_reasons + ebp * 4], PROC_BLOCK_NONE
+    mov dword [scheduler_sleep_wake_ticks + ebp * 4], 0
+    mov dword [scheduler_block_objects + ebp * 4], 0
+    mov dword [scheduler_block_status_ptrs + ebp * 4], 0
+    inc dword [scheduler_block_wakeups]
+    inc dword [process_vfork_exec_release_successes]
+    clc
+    jmp .done
+
+.parent_missing:
+    mov dword [process_vfork_exec_release_last_stage], PROCESS_VFORK_EXEC_RELEASE_PARENT_MISSING
+    inc dword [process_vfork_exec_release_failures]
+    stc
+    jmp .done
+
+.parent_not_blocked:
+    mov dword [process_vfork_exec_release_last_stage], PROCESS_VFORK_EXEC_RELEASE_PARENT_NOT_BLOCKED
+    inc dword [process_vfork_exec_release_failures]
+    stc
+    jmp .done
+
+.object_mismatch:
+    mov dword [process_vfork_exec_release_last_stage], PROCESS_VFORK_EXEC_RELEASE_OBJECT_MISMATCH
+    inc dword [process_vfork_exec_release_failures]
+    stc
+
+.done:
+    pop ebp
     pop edi
     pop esi
     pop edx
@@ -24519,6 +24771,12 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_LDSOHDR_SMOKE
     mov esi, exec_path_linux_ldso_header
 %endif
+%ifdef LINUX_M1_EXECVE_SMOKE
+    mov esi, exec_path_linux_execve_probe
+%endif
+%ifdef LINUX_M1_VFORK_EXEC_SMOKE
+    mov esi, exec_path_linux_vfork_exec_probe
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -24626,6 +24884,12 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_LDSOHDR_SMOKE
     mov esi, exec_path_linux_ldso_header
+%endif
+%ifdef LINUX_M1_EXECVE_SMOKE
+    mov esi, exec_path_linux_execve_probe
+%endif
+%ifdef LINUX_M1_VFORK_EXEC_SMOKE
+    mov esi, exec_path_linux_vfork_exec_probe
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -25825,6 +26089,7 @@ LINUX_SYS_WRITE equ 4
 LINUX_SYS_OPEN equ 5
 LINUX_SYS_CLOSE equ 6
 LINUX_SYS_WAITPID equ 7
+LINUX_SYS_EXECVE equ 11
 LINUX_SYS_LSEEK equ 19
 LINUX_SYS_GETPID equ 20
 LINUX_SYS_GETUID equ 24
@@ -34480,6 +34745,8 @@ syscall_handler:
     je .waitpid
     cmp eax, LINUX_SYS_EXIT
     je .exit
+    cmp eax, LINUX_SYS_EXECVE
+    je .exec
     cmp eax, LINUX_SYS_LSEEK
     je .lseek
     cmp eax, LINUX_SYS_GETPID
@@ -39562,6 +39829,23 @@ write_smoke_status:
     mov edx, [fd_exec_closed]
     call smoke_write_slash_hex32
     mov edx, [fd_owner_closes]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_vforkexec_text
+    call smoke_copy_string
+    mov edx, [process_vfork_exec_release_attempts]
+    call smoke_write_hex32
+    mov edx, [process_vfork_exec_release_successes]
+    call smoke_write_slash_hex32
+    mov edx, [process_vfork_exec_release_failures]
+    call smoke_write_slash_hex32
+    mov edx, [process_vfork_exec_release_last_stage]
+    call smoke_write_slash_hex32
+    mov edx, [process_vfork_exec_release_last_parent_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_vfork_exec_release_last_child_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_vfork_exec_release_last_target_pid]
     call smoke_write_slash_hex32
 
     mov esi, smoke_fddup_text
@@ -45565,6 +45849,7 @@ smoke_ksleep_text db " ksleep=", 0
 smoke_procpool_text db " procpool=", 0
 smoke_pidseq_text db " pidseq=", 0
 smoke_fdexec_text db " fdexec=", 0
+smoke_vforkexec_text db " vforkexec=", 0
 smoke_fddup_text db " fdup=", 0
 smoke_pwait_text db " wait=", 0
 smoke_waitseed_text db " waitseed=", 0
@@ -46108,6 +46393,9 @@ linux_startup_elf_name_83 db "STARTUP ELF"
 linux_musl_elf_name_83 db "MUSL    ELF"
 linux_glibc_elf_name_83 db "GLIBC   ELF"
 linux_exec_limits_elf_name_83 db "XLIMIT  ELF"
+linux_execve_probe_elf_name_83 db "EXECVE  ELF"
+linux_vfork_exec_probe_elf_name_83 db "VFORKEX ELF"
+linux_vfork_child_probe_elf_name_83 db "VFORKCH ELF"
 linux_dir_elf_name_83 db "DIR     ELF"
 linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
@@ -46148,6 +46436,9 @@ exec_path_linux_startup db "/BIN/STARTUP.ELF", 0
 exec_path_linux_musl db "/BIN/MUSL.ELF", 0
 exec_path_linux_glibc db "/BIN/GLIBC.ELF", 0
 exec_path_linux_exec_limits db "/BIN/XLIMIT.ELF", 0
+exec_path_linux_execve_probe db "/BIN/EXECVE.ELF", 0
+exec_path_linux_vfork_exec_probe db "/BIN/VFORKEX.ELF", 0
+exec_path_linux_vfork_child_probe db "/BIN/VFORKCH.ELF", 0
 exec_path_linux_dir db "/BIN/DIR.ELF", 0
 exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
@@ -47601,6 +47892,13 @@ sys_exec_last_aux_base dd 0
 sys_exec_last_aux_entry dd 0
 sys_exec_last_argv_source dd 0
 sys_exec_last_envp_source dd 0
+process_vfork_exec_release_attempts dd 0
+process_vfork_exec_release_successes dd 0
+process_vfork_exec_release_failures dd 0
+process_vfork_exec_release_last_stage dd PROCESS_VFORK_EXEC_RELEASE_NONE
+process_vfork_exec_release_last_parent_pid dd 0xffffffff
+process_vfork_exec_release_last_child_pid dd 0xffffffff
+process_vfork_exec_release_last_target_pid dd 0xffffffff
 sys_exec_user_argv_arg dd 0
 sys_exec_user_envp_arg dd 0
 sys_exec_frame_ptr dd 0
