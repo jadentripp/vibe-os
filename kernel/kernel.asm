@@ -987,6 +987,7 @@ MMAP_MAP_POPULATE equ 0x00008000
 MMAP_MAP_STACK equ 0x00020000
 MMAP_SUPPORTED_FLAGS equ MMAP_MAP_SHARED | MMAP_MAP_PRIVATE | MMAP_MAP_FIXED | MMAP_MAP_ANONYMOUS | MMAP_MAP_DENYWRITE | MMAP_MAP_EXECUTABLE | MMAP_MAP_NORESERVE | MMAP_MAP_POPULATE | MMAP_MAP_STACK
 LINUX_MPROTECT_RECORD_COUNT equ 16
+LINUX_MMAP_LAZY_FILE_RECORD_COUNT equ 60
 IOCTL_DISPLAY_FD equ 1
 IOCTL_AUDIO_FD equ 0x00004155
 VIBE_IOCTL_FBINFO equ 0x00005601
@@ -12765,6 +12766,7 @@ storage_init:
     mov dword [linux_syscall_after_demand_nr], 0
     mov dword [linux_syscall_after_demand_eip], 0
     call linux_mprotect_records_clear
+    call linux_mmap_lazy_file_records_clear
     mov byte [process_exec_reject_active_target], 0
     mov dword [sys_exec_stage_base], 0
     mov dword [sys_exec_stage_alloc_status], 0
@@ -19325,13 +19327,13 @@ process_teardown_user_vm:
     inc dword [process_vm_teardowns]
     mov ebx, [esi + PROC_PAGE_DIR]
     cmp ebx, 0
-    je .reset_metadata
+    je .clear_lazy_file_records
     mov edi, [esi + PROC_VM_REGIONS]
     mov ecx, [esi + PROC_VM_REGION_COUNT]
 
 .region_next:
     cmp ecx, 0
-    je .reset_metadata
+    je .clear_lazy_file_records
     test dword [edi + VM_REGION_FLAGS], VM_REGION_USER
     jz .region_advance
     mov eax, [edi + VM_REGION_BASE]
@@ -19342,6 +19344,9 @@ process_teardown_user_vm:
     add edi, VM_REGION_BYTES
     dec ecx
     jmp .region_next
+
+.clear_lazy_file_records:
+    call linux_mmap_lazy_file_records_clear_for_process
 
 .reset_metadata:
     mov eax, [esi + PROC_HEAP_START]
@@ -21521,7 +21526,8 @@ scheduler_select_next_ready:
     jmp .found
 
 .advance:
-    loop .next
+    dec ecx
+    jnz near .next
     mov dword [scheduler_next_pid], 0xffffffff
     jmp .done
 
@@ -22321,6 +22327,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_llseek
 
+    mov edi, exec_path_linux_mmap_large
+    call kernel_streq
+    cmp al, 1
+    je near .linux_mmap_large
+
     mov edi, exec_path_linux_pipe
     call kernel_streq
     cmp al, 1
@@ -22563,6 +22574,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_llseek_elf_name_83
+    jmp .linux_bin_app
+
+.linux_mmap_large:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_mmap_large_elf_name_83
     jmp .linux_bin_app
 
 .linux_pipe:
@@ -23079,6 +23097,7 @@ process_exec_large_linux_preflight:
     mov dword [linux_syscall_after_demand_nr], 0
     mov dword [linux_syscall_after_demand_eip], 0
     call linux_mprotect_records_clear_for_exec_target
+    call linux_mmap_lazy_file_records_clear_for_exec_target
 
     mov ebx, [process_exec_size]
     cmp ebx, LARGE_ELF_PREFLIGHT_BYTES
@@ -24991,6 +25010,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_LLSEEK_SMOKE
     mov esi, exec_path_linux_llseek
 %endif
+%ifdef LINUX_M1_MMAP_LARGE_SMOKE
+    mov esi, exec_path_linux_mmap_large
+%endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
 %endif
@@ -25120,6 +25142,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_LLSEEK_SMOKE
     mov esi, exec_path_linux_llseek
+%endif
+%ifdef LINUX_M1_MMAP_LARGE_SMOKE
+    mov esi, exec_path_linux_mmap_large
 %endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
@@ -27916,6 +27941,386 @@ linux_mprotect_records_clear_current_overlap:
 .advance:
     inc esi
     jmp .slot_next
+
+.done:
+    popad
+    ret
+
+linux_mmap_lazy_file_records_clear:
+    pushad
+    xor eax, eax
+    mov edi, linux_mmap_lazy_file_owner
+    mov ecx, LINUX_MMAP_LAZY_FILE_RECORD_COUNT * 6
+    cld
+    rep stosd
+    mov dword [linux_mmap_lazy_last_slot], 0xffffffff
+    mov dword [linux_mmap_lazy_last_page], 0
+    mov dword [linux_mmap_lazy_last_offset], 0
+    mov dword [linux_mmap_lazy_last_copy_len], 0
+    mov dword [linux_mmap_lazy_last_pte_flags], 0
+    mov dword [linux_mmap_lazy_last_phys], 0
+    mov dword [linux_mmap_lazy_registers], 0
+    mov dword [linux_mmap_lazy_faults], 0
+    mov dword [linux_mmap_lazy_pages], 0
+    mov dword [linux_mmap_lazy_failures], 0
+    mov dword [linux_mmap_lazy_last_status], 0
+    mov dword [linux_mmap_lazy_last_error], 0
+    mov dword [linux_mmap_lazy_copy_done], 0
+    mov dword [linux_mmap_lazy_sector_offset], 0
+    popad
+    ret
+
+linux_mmap_lazy_file_clear_slot:
+    mov dword [linux_mmap_lazy_file_owner + esi * 4], 0
+    mov dword [linux_mmap_lazy_file_base + esi * 4], 0
+    mov dword [linux_mmap_lazy_file_end + esi * 4], 0
+    mov dword [linux_mmap_lazy_file_cluster + esi * 4], 0
+    mov dword [linux_mmap_lazy_file_size + esi * 4], 0
+    mov dword [linux_mmap_lazy_file_offset + esi * 4], 0
+    ret
+
+linux_mmap_lazy_file_records_clear_for_process:
+    pushad
+    cmp esi, 0
+    je .done
+    mov ebp, [esi + PROC_PAGE_DIR]
+    test ebp, ebp
+    jz .done
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+    jae .done
+    cmp [linux_mmap_lazy_file_owner + esi * 4], ebp
+    jne .advance
+    call linux_mmap_lazy_file_clear_slot
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.done:
+    popad
+    ret
+
+linux_mmap_lazy_file_records_clear_for_exec_target:
+    pushad
+    mov esi, [process_exec_target]
+    cmp esi, 0
+    je .done
+    call linux_mmap_lazy_file_records_clear_for_process
+
+.done:
+    popad
+    ret
+
+linux_mmap_lazy_file_register_current:
+    pushad
+    call linux_mprotect_current_owner
+    mov ebp, eax
+    test ebp, ebp
+    jz .enomem
+
+.find_slot:
+    call linux_mmap_lazy_file_records_clear_current_overlap
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+    jae .enomem
+    cmp dword [linux_mmap_lazy_file_owner + esi * 4], 0
+    jne .advance
+    mov [linux_mmap_lazy_file_owner + esi * 4], ebp
+    mov eax, [mmap_base_arg]
+    mov [linux_mmap_lazy_file_base + esi * 4], eax
+    mov eax, [mmap_end_arg]
+    mov [linux_mmap_lazy_file_end + esi * 4], eax
+    mov eax, [mmap_file_cluster]
+    mov [linux_mmap_lazy_file_cluster + esi * 4], eax
+    mov eax, [mmap_file_size]
+    mov [linux_mmap_lazy_file_size + esi * 4], eax
+    mov eax, [mmap_file_offset_arg]
+    mov [linux_mmap_lazy_file_offset + esi * 4], eax
+    mov [linux_mmap_lazy_last_slot], esi
+    inc dword [linux_mmap_lazy_registers]
+    mov dword [linux_mmap_lazy_last_status], 1
+    mov dword [linux_mmap_lazy_last_error], 0
+    clc
+    jmp .done
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.enomem:
+    inc dword [linux_mmap_lazy_failures]
+    mov dword [linux_mmap_lazy_last_status], 0xfffffffe
+    mov dword [linux_mmap_lazy_last_error], -ERRNO_ENOMEM
+    stc
+
+.done:
+    popad
+    ret
+
+linux_mmap_lazy_file_records_clear_current_overlap:
+    pushad
+    call linux_mprotect_current_owner
+    mov ebp, eax
+    test ebp, ebp
+    jz .done
+    mov ebx, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+    jae .done
+    cmp [linux_mmap_lazy_file_owner + esi * 4], ebp
+    jne .advance
+    mov eax, [linux_mmap_lazy_file_base + esi * 4]
+    mov ecx, [linux_mmap_lazy_file_end + esi * 4]
+    cmp eax, ecx
+    jae .advance
+    cmp eax, edx
+    jae .advance
+    cmp ecx, ebx
+    jbe .advance
+    cmp ebx, eax
+    jbe .overlap_from_head
+    cmp edx, ecx
+    jae .trim_tail
+    jmp .advance
+
+.overlap_from_head:
+    cmp edx, ecx
+    jae .clear_record
+    mov edi, edx
+    sub edi, eax
+    add [linux_mmap_lazy_file_offset + esi * 4], edi
+    mov [linux_mmap_lazy_file_base + esi * 4], edx
+    jmp .advance
+
+.trim_tail:
+    mov [linux_mmap_lazy_file_end + esi * 4], ebx
+    jmp .advance
+
+.clear_record:
+    call linux_mmap_lazy_file_clear_slot
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.done:
+    popad
+    ret
+
+linux_mmap_lazy_file_page_fault:
+    pushad
+    cmp dword [fault_vector], 14
+    jne .reject
+    test dword [fault_error], 1
+    jnz .reject
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .reject
+    cmp esi, process_kernel
+    je .reject
+    cmp dword [esi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .reject
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .reject
+    mov eax, [fault_cr2]
+    and eax, 0xfffff000
+    mov [linux_mmap_lazy_last_page], eax
+    mov dword [linux_mmap_lazy_last_slot], 0xffffffff
+    mov dword [linux_mmap_lazy_last_offset], 0
+    mov dword [linux_mmap_lazy_last_copy_len], 0
+    mov dword [linux_mmap_lazy_copy_done], 0
+    mov ecx, PTE_USER_READ_FLAGS
+    call linux_mprotect_lookup_pte_flags_for_owner
+    jc .flags_ready
+    mov ecx, [linux_mprotect_lookup_flags]
+
+.flags_ready:
+    mov [linux_mmap_lazy_last_pte_flags], ecx
+    test ecx, PTE_USER
+    jz .reject
+    test dword [fault_error], 2
+    jz .find_record
+    test ecx, PTE_WRITE
+    jz .reject
+
+.find_record:
+    xor esi, esi
+
+.scan_next:
+    cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+    jae .not_found
+    cmp [linux_mmap_lazy_file_owner + esi * 4], ebx
+    jne .scan_advance
+    mov eax, [linux_mmap_lazy_last_page]
+    cmp eax, [linux_mmap_lazy_file_base + esi * 4]
+    jb .scan_advance
+    cmp eax, [linux_mmap_lazy_file_end + esi * 4]
+    jb .found
+
+.scan_advance:
+    inc esi
+    jmp .scan_next
+
+.found:
+    inc dword [linux_mmap_lazy_faults]
+    mov dword [linux_mmap_lazy_last_status], 2
+    mov dword [linux_mmap_lazy_last_error], 0
+    mov [linux_mmap_lazy_last_slot], esi
+    mov eax, [linux_mmap_lazy_last_page]
+    sub eax, [linux_mmap_lazy_file_base + esi * 4]
+    add eax, [linux_mmap_lazy_file_offset + esi * 4]
+    jc .eio
+    mov [linux_mmap_lazy_last_offset], eax
+    mov dword [linux_mmap_lazy_last_copy_len], 0
+    cmp eax, [linux_mmap_lazy_file_size + esi * 4]
+    jae .alloc_page
+    mov ecx, [linux_mmap_lazy_file_size + esi * 4]
+    sub ecx, eax
+    cmp ecx, PAGE_SIZE
+    jbe .file_len_ready
+    mov ecx, PAGE_SIZE
+
+.file_len_ready:
+    mov edx, [linux_mmap_lazy_file_end + esi * 4]
+    sub edx, [linux_mmap_lazy_last_page]
+    cmp ecx, edx
+    jbe .copy_len_ready
+    mov ecx, edx
+
+.copy_len_ready:
+    mov [linux_mmap_lazy_last_copy_len], ecx
+
+.alloc_page:
+    call pmm_alloc_page
+    test eax, eax
+    jz .enomem
+    mov [linux_mmap_lazy_last_phys], eax
+
+    pushfd
+    cli
+    mov eax, FORK_COPY_DST_ALIAS
+    mov ebx, [linux_mmap_lazy_last_phys]
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    jc .alias_fail
+    mov edi, FORK_COPY_DST_ALIAS
+    xor eax, eax
+    mov ecx, PAGE_SIZE / 4
+    cld
+    rep stosd
+
+.copy_loop:
+    mov eax, [linux_mmap_lazy_copy_done]
+    cmp eax, [linux_mmap_lazy_last_copy_len]
+    jae .copy_done
+    mov esi, [linux_mmap_lazy_last_slot]
+    mov ax, [linux_mmap_lazy_file_cluster + esi * 4]
+    mov edx, [linux_mmap_lazy_last_offset]
+    add edx, [linux_mmap_lazy_copy_done]
+    jc .read_fail_unmap
+    call fat_file_lba_for_offset
+    jc .read_fail_unmap
+    mov [linux_mmap_lazy_sector_offset], ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call block_selected_read_sector
+    jc .read_fail_unmap
+
+    mov esi, SECTOR_BUFFER_ADDR
+    add esi, [linux_mmap_lazy_sector_offset]
+    mov edi, FORK_COPY_DST_ALIAS
+    add edi, [linux_mmap_lazy_copy_done]
+    mov ecx, 512
+    sub ecx, [linux_mmap_lazy_sector_offset]
+    mov eax, [linux_mmap_lazy_last_copy_len]
+    sub eax, [linux_mmap_lazy_copy_done]
+    cmp ecx, eax
+    jbe .chunk_ready
+    mov ecx, eax
+
+.chunk_ready:
+    mov ebx, ecx
+    cld
+    rep movsb
+    add [linux_mmap_lazy_copy_done], ebx
+    jmp .copy_loop
+
+.copy_done:
+    mov eax, FORK_COPY_DST_ALIAS
+    call vmm_unmap_page
+    popfd
+
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .target_fail
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .target_fail
+    mov ecx, [linux_mmap_lazy_last_phys]
+    and ecx, 0xfffff000
+    mov edx, [linux_mmap_lazy_last_pte_flags]
+    and edx, 0x00000fff
+    or ecx, edx
+    mov eax, [linux_mmap_lazy_last_page]
+    call vmm_write_process_pte
+    jc .pte_fail
+    mov eax, [linux_mmap_lazy_last_page]
+    invlpg [eax]
+    inc dword [linux_mmap_lazy_pages]
+    mov dword [linux_mmap_lazy_last_status], 3
+    mov dword [linux_mmap_lazy_last_error], 0
+    call linux_m1_smoke_maybe_write_runtime_status
+    clc
+    jmp .done
+
+.read_fail_unmap:
+    mov eax, FORK_COPY_DST_ALIAS
+    call vmm_unmap_page
+
+.alias_fail:
+    popfd
+    mov eax, [linux_mmap_lazy_last_phys]
+    call pmm_free_page
+    jmp .eio
+
+.target_fail:
+    mov eax, [linux_mmap_lazy_last_phys]
+    call pmm_free_page
+    jmp .enomem
+
+.pte_fail:
+    mov eax, [linux_mmap_lazy_last_phys]
+    call pmm_free_page
+    jmp .enomem
+
+.not_found:
+    stc
+    jmp .done
+
+.eio:
+    inc dword [linux_mmap_lazy_failures]
+    mov dword [linux_mmap_lazy_last_status], 0xfffffff5
+    mov dword [linux_mmap_lazy_last_error], -ERRNO_EIO
+    stc
+    jmp .done
+
+.enomem:
+    inc dword [linux_mmap_lazy_failures]
+    mov dword [linux_mmap_lazy_last_status], 0xfffffffe
+    mov dword [linux_mmap_lazy_last_error], -ERRNO_ENOMEM
+    stc
+    jmp .done
+
+.reject:
+    stc
 
 .done:
     popad
@@ -31943,6 +32348,25 @@ linux_sys_mmap2_file:
 
 .high_file_map:
     mov eax, [mmap_base_arg]
+    cmp eax, PAGING_MAPPED_BYTES
+    jb .high_eager_file_map
+    mov eax, [mmap_prot_arg]
+    test eax, MMAP_PROT_READ
+    jz .high_eager_file_map
+    test eax, MMAP_PROT_WRITE
+    jnz .high_eager_file_map
+    call linux_mmap_lazy_file_register_current
+    jc .high_lazy_fail
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_heap_mark_range
+    jmp .record
+
+.high_lazy_fail:
+    jmp .enomem
+
+.high_eager_file_map:
+    mov eax, [mmap_base_arg]
     mov edx, [mmap_end_arg]
     call process_heap_mark_range
     mov ebx, [file_io_fd_slot]
@@ -34982,18 +35406,19 @@ syscall_handler:
     add eax, [mmap_len_arg]
     jc .bad_syscall_einval
     mov [mmap_end_arg], eax
-    mov eax, [mmap_base_arg]
-    mov ebx, [mmap_len_arg]
-    call user_range_validate
-    jc .bad_syscall_einval
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .bad_syscall_einval
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_heap_range_is_mapped
+    jc .bad_syscall_einval
     mov eax, [mmap_base_arg]
     mov [process_last_munmap_base], eax
     mov eax, [mmap_end_arg]
     mov [process_last_munmap_end], eax
     call linux_mprotect_records_clear_current_overlap
+    call linux_mmap_lazy_file_records_clear_current_overlap
     cmp eax, [esi + PROC_BRK]
     jne .munmap_keep_non_tail
     mov ebx, [esi + PROC_PAGE_DIR]
@@ -38901,6 +39326,8 @@ exception_common:
     jz .kernel_panic
     call large_elf_demand_page_fault
     jnc .demand_fault_return
+    call linux_mmap_lazy_file_page_fault
+    jnc .demand_fault_return
     movzx eax, byte [current_user_kind]
     call user_kind_is_large_payload
     jnc payload_user_fault
@@ -41624,6 +42051,31 @@ write_smoke_status:
     mov edx, [mmap_file_size]
     call smoke_write_slash_hex32
     mov edx, [mmap_file_offset_arg]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_mmaplazy_text
+    call smoke_copy_string
+    mov edx, [linux_mmap_lazy_registers]
+    call smoke_write_hex32
+    mov edx, [linux_mmap_lazy_faults]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_pages]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_failures]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_status]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_slot]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_error]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_page]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_offset]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_copy_len]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mmap_lazy_last_pte_flags]
     call smoke_write_slash_hex32
 
     mov esi, smoke_mprot_text
@@ -46890,6 +47342,7 @@ smoke_doomclose_text db " doomclose=", 0
 smoke_doomsbrk_text db " doomsbrk=", 0
 smoke_mmap_text db " mmap=", 0
 smoke_mmapfile_text db " mmapfile=", 0
+smoke_mmaplazy_text db " mmaplazy=", 0
 smoke_mprot_text db " mprot=", 0
 smoke_brk_text db " brk=", 0
 smoke_doomerr_text db " doomerr=", 0
@@ -47287,6 +47740,7 @@ linux_dir_elf_name_83 db "DIR     ELF"
 linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_llseek_elf_name_83 db "LLSEEK  ELF"
+linux_mmap_large_elf_name_83 db "MMAPLG  ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
 linux_rseq_elf_name_83 db "RSEQ    ELF"
@@ -47338,6 +47792,7 @@ exec_path_linux_dir db "/BIN/DIR.ELF", 0
 exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_llseek db "/BIN/LLSEEK.ELF", 0
+exec_path_linux_mmap_large db "/BIN/MMAPLG.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
@@ -48908,6 +49363,26 @@ mmap_file_offset_arg dd 0
 mmap_page_vaddr dd 0
 mmap_page_phys dd 0
 mmap_saved_fd_offset dd 0
+linux_mmap_lazy_file_owner times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_file_base times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_file_end times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_file_cluster times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_file_size times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_file_offset times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+linux_mmap_lazy_last_slot dd 0xffffffff
+linux_mmap_lazy_last_page dd 0
+linux_mmap_lazy_last_offset dd 0
+linux_mmap_lazy_last_copy_len dd 0
+linux_mmap_lazy_last_pte_flags dd 0
+linux_mmap_lazy_last_phys dd 0
+linux_mmap_lazy_registers dd 0
+linux_mmap_lazy_faults dd 0
+linux_mmap_lazy_pages dd 0
+linux_mmap_lazy_failures dd 0
+linux_mmap_lazy_last_status dd 0
+linux_mmap_lazy_last_error dd 0
+linux_mmap_lazy_copy_done dd 0
+linux_mmap_lazy_sector_offset dd 0
 process_mmap_attempts dd 0
 process_mmap_successes dd 0
 process_mmap_failures dd 0

@@ -14,6 +14,7 @@ dir_probe
 fd_probe
 dev_null_probe
 llseek_probe
+mmap_large_probe
 pipe_probe
 fork_probe
 clone3_probe
