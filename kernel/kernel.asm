@@ -433,7 +433,7 @@ FPU_STATUS_READY equ 1
 FPU_STATUS_FAILED equ 2
 FPU_CONTROL_WORD_INIT equ 0x037f
 FPU_CONTEXT_BYTES equ 512
-FPU_CONTEXT_SLOT_COUNT equ 6
+FPU_CONTEXT_SLOT_COUNT equ 7
 KERNEL_STACK_LOW equ 0x00060000
 KERNEL_STACK_TOP equ 0x00070000
 PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000
@@ -443,6 +443,7 @@ PROC_PAYLOAD_KERNEL_STACK_TOP equ 0x00073000
 PROC_GENERIC0_KERNEL_STACK_TOP equ 0x00074000
 PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000
 PROC_GENERIC2_KERNEL_STACK_TOP equ 0x00076000
+PROC_GENERIC3_KERNEL_STACK_TOP equ 0x00077000
 PIT_INPUT_HZ equ 1193182
 PIT_IRQ_HZ equ 100
 PIT_DIVISOR_100HZ equ 11932
@@ -512,6 +513,8 @@ PROC_GENERIC1_PDE3_TABLE_ADDR equ 0x0008c000
 PROC_USER_PDE4_TABLE_ADDR equ 0x0008d000
 PROC_GENERIC2_PAGE_DIR_ADDR equ 0x0008e000
 PROC_GENERIC2_PDE3_TABLE_ADDR equ 0x0008f000
+PROC_GENERIC3_PAGE_DIR_ADDR equ 0x00099000
+PROC_GENERIC3_PDE3_TABLE_ADDR equ 0x0009a000
 PMM_FRAME_MAP_ADDR equ 0x00050000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x10000000
@@ -587,8 +590,8 @@ KERNEL_HIGH_ABI_FULL_MASK equ KERNEL_HIGH_ABI_ENTRY_CHECKPOINT | KERNEL_HIGH_ABI
 KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00040000
 KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE
 KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE
-KERNEL_PROCESS_STACK_ALIAS_PAGES equ (PROC_GENERIC2_KERNEL_STACK_TOP - KERNEL_STACK_TOP) / PAGE_SIZE
-KERNEL_PERSISTENT_DIR_MASK equ 0x0000007f
+KERNEL_PROCESS_STACK_ALIAS_PAGES equ (PROC_GENERIC3_KERNEL_STACK_TOP - KERNEL_STACK_TOP) / PAGE_SIZE
+KERNEL_PERSISTENT_DIR_MASK equ 0x000000ff
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_ALIGN equ 16
@@ -639,8 +642,8 @@ PROC_STATE_EXITED equ 3
 PROC_STATE_FAULTED equ 4
 PROC_STATE_SLEEPING equ 5
 PROC_STATE_BLOCKED equ 6
-PROCESS_SLOT_COUNT equ 7
-PROCESS_GENERIC_SLOT_COUNT equ 3
+PROCESS_SLOT_COUNT equ 8
+PROCESS_GENERIC_SLOT_COUNT equ 4
 PROCESS_FORK_FAIL_NONE equ 0
 PROCESS_FORK_FAIL_NO_SLOT equ 1
 PROCESS_FORK_FAIL_VM_COPY equ 2
@@ -3704,6 +3707,8 @@ mmio_install_process_dirs:
     mov [edi + edx * 4], ebx
     mov edi, PROC_GENERIC2_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
+    mov edi, PROC_GENERIC3_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
 
 .done:
     pop edi
@@ -5898,6 +5903,8 @@ kernel_relocation_dir_validate:
     je .fail
     cmp eax, PROC_GENERIC2_PAGE_DIR_ADDR
     je .fail
+    cmp eax, PROC_GENERIC3_PAGE_DIR_ADDR
+    je .fail
     mov eax, KERNEL_RELOC_ABI_DIR_ALLOC
     call kernel_relocation_record_abi
 
@@ -6701,6 +6708,8 @@ kernel_persistent_alias_install_process_dirs:
     or dword [kernel_persistent_alias_dir_mask], 0x00000020
     mov [PROC_GENERIC2_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000040
+    mov [PROC_GENERIC3_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000080
 
 .done:
     pop eax
@@ -6850,6 +6859,8 @@ framebuffer_install_process_dirs:
     mov [edi + eax * 4], ebx
     mov edi, PROC_GENERIC2_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
+    mov edi, PROC_GENERIC3_PAGE_DIR_ADDR
+    mov [edi + eax * 4], ebx
 
 .next:
     inc eax
@@ -6998,6 +7009,12 @@ process_vm_init_page_spaces:
     cld
     rep movsd
 
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_GENERIC3_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
     mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
     mov edi, PROC_USER_PDE4_TABLE_ADDR
     mov ecx, 1024
@@ -7089,6 +7106,25 @@ process_vm_init_page_spaces:
     mov dword [PROC_GENERIC2_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_GENERIC2_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR
+    mov edx, USER_STACK_TOP
+    call vmm_mark_process_user_range
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_clear_process_guard_page
+    mov eax, USER_STACK_BOTTOM
+    call vmm_clear_process_guard_page
+    mov eax, USER_HEAP_END
+    call vmm_clear_process_guard_page
+
+    mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
+    mov edi, PROC_GENERIC3_PDE3_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_GENERIC3_PAGE_DIR_ADDR + (3 * 4)], PROC_GENERIC3_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_GENERIC3_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_GENERIC3_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
     mov edx, USER_STACK_TOP
     call vmm_mark_process_user_range
@@ -7629,6 +7665,14 @@ vmm_probe_user_guard_pages:
     call vmm_probe_absent_guard_page
 
     mov ebx, PROC_GENERIC2_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_probe_absent_guard_page
+    mov eax, USER_STACK_BOTTOM
+    call vmm_probe_absent_guard_page
+    mov eax, USER_HEAP_END
+    call vmm_probe_absent_guard_page
+
+    mov ebx, PROC_GENERIC3_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR - PAGE_SIZE
     call vmm_probe_absent_guard_page
     mov eax, USER_STACK_BOTTOM
@@ -12453,6 +12497,12 @@ storage_init:
     mov dword [mmap_flags_arg], 0
     mov dword [mmap_base_arg], 0
     mov dword [mmap_end_arg], 0
+    mov dword [mmap_file_fd_arg], 0xffffffff
+    mov dword [mmap_file_fd_slot], 0xffffffff
+    mov dword [mmap_file_fd_kind], 0
+    mov dword [mmap_file_cluster], 0
+    mov dword [mmap_file_size], 0
+    mov dword [mmap_file_offset_arg], 0
     mov dword [process_mmap_attempts], 0
     mov dword [process_mmap_successes], 0
     mov dword [process_mmap_failures], 0
@@ -18748,6 +18798,12 @@ scheduler_init:
     mov dword [process_mmap_failures], 0
     mov dword [process_mmap_last_result], 0
     mov dword [process_mmap_last_error], 0
+    mov dword [mmap_file_fd_arg], 0xffffffff
+    mov dword [mmap_file_fd_slot], 0xffffffff
+    mov dword [mmap_file_fd_kind], 0
+    mov dword [mmap_file_cluster], 0
+    mov dword [mmap_file_size], 0
+    mov dword [mmap_file_offset_arg], 0
     mov dword [process_brk_attempts], 0
     mov dword [process_brk_successes], 0
     mov dword [process_brk_failures], 0
@@ -18863,6 +18919,8 @@ scheduler_init:
     mov esi, process_generic1
     call process_reset_generic_unused
     mov esi, process_generic2
+    call process_reset_generic_unused
+    mov esi, process_generic3
     call process_reset_generic_unused
     mov esi, process_kernel
     call process_activate
@@ -19297,6 +19355,8 @@ process_restore_own_page_dir:
     je .generic1
     cmp esi, process_generic2
     je .generic2
+    cmp esi, process_generic3
+    je .generic3
     ret
 
 .probe:
@@ -19321,6 +19381,10 @@ process_restore_own_page_dir:
 
 .generic2:
     mov dword [esi + PROC_PAGE_DIR], PROC_GENERIC2_PAGE_DIR_ADDR
+    ret
+
+.generic3:
+    mov dword [esi + PROC_PAGE_DIR], PROC_GENERIC3_PAGE_DIR_ADDR
     ret
 
 process_restore_user_stack_vm:
@@ -19413,6 +19477,8 @@ process_is_user_exec_target:
     cmp eax, process_generic1
     je .yes
     cmp eax, process_generic2
+    je .yes
+    cmp eax, process_generic3
     je .yes
     stc
     ret
@@ -20377,6 +20443,8 @@ process_fpu_context_for_ptr:
     je .slot4
     cmp edx, process_generic2
     je .slot5
+    cmp edx, process_generic3
+    je .slot6
     jmp .fail
 
 .slot0:
@@ -20412,6 +20480,12 @@ process_fpu_context_for_ptr:
 .slot5:
     mov edi, process_fpu_contexts + (FPU_CONTEXT_BYTES * 5)
     mov ebx, process_fpu_initialized + 5
+    clc
+    ret
+
+.slot6:
+    mov edi, process_fpu_contexts + (FPU_CONTEXT_BYTES * 6)
+    mov ebx, process_fpu_initialized + 6
     clc
     ret
 
@@ -22900,7 +22974,7 @@ process_exec_large_linux_preflight:
     mov dword [linux_syscall_after_demand_count], 0
     mov dword [linux_syscall_after_demand_nr], 0
     mov dword [linux_syscall_after_demand_eip], 0
-    call linux_mprotect_records_clear
+    call linux_mprotect_records_clear_for_exec_target
 
     mov ebx, [process_exec_size]
     cmp ebx, LARGE_ELF_PREFLIGHT_BYTES
@@ -23477,7 +23551,7 @@ process_exec_large_linux_map_file_page:
     mov edx, ecx
     and edx, 0xfffff000
     mov eax, [large_elf_last_map_vaddr]
-    call linux_mprotect_lookup_pte_flags
+    call linux_mprotect_lookup_pte_flags_for_owner
     jc .pte_ready
     or edx, ecx
     mov ecx, edx
@@ -25054,6 +25128,15 @@ linux_m1_smoke_stage_chromium:
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, chromium_arg_disable_background_networking
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_crashpad_for_testing
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_crash_reporter
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_breakpad
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, chromium_arg_user_data_dir
@@ -27339,11 +27422,69 @@ linux_mprotect_records_clear:
     mov [linux_mprotect_last_start], eax
     mov [linux_mprotect_last_end], eax
     mov [linux_mprotect_last_prot], eax
+    mov [linux_mprotect_last_owner], eax
     mov [linux_mprotect_record_next], eax
     mov edi, linux_mprotect_record_start
-    mov ecx, LINUX_MPROTECT_RECORD_COUNT * 3
+    mov ecx, LINUX_MPROTECT_RECORD_COUNT * 4
     cld
     rep stosd
+    mov [linux_mprotect_record_writes], eax
+    mov [linux_mprotect_record_wraps], eax
+    mov [linux_mprotect_lookup_page], eax
+    mov [linux_mprotect_lookup_owner], eax
+    mov [linux_mprotect_lookup_slot], eax
+    dec dword [linux_mprotect_lookup_slot]
+    mov [linux_mprotect_lookup_prot], eax
+    mov [linux_mprotect_lookup_flags], eax
+    mov [linux_mprotect_lookup_hits], eax
+    mov [linux_mprotect_lookup_misses], eax
+    mov [linux_mprotect_munmap_clears], eax
+    popad
+    ret
+
+linux_mprotect_current_owner:
+    push esi
+    mov esi, [current_process_ptr]
+    xor eax, eax
+    cmp esi, 0
+    je .done
+    mov eax, [esi + PROC_PAGE_DIR]
+    test eax, eax
+    jnz .done
+    mov eax, PAGING_DIR_ADDR
+
+.done:
+    pop esi
+    ret
+
+linux_mprotect_records_clear_for_exec_target:
+    pushad
+    mov esi, [process_exec_target]
+    cmp esi, 0
+    je .done
+    mov ebp, [esi + PROC_PAGE_DIR]
+    test ebp, ebp
+    jnz .owner_ready
+    mov ebp, PAGING_DIR_ADDR
+
+.owner_ready:
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_MPROTECT_RECORD_COUNT
+    jae .done
+    cmp [linux_mprotect_record_owner + esi * 4], ebp
+    jne .advance
+    mov dword [linux_mprotect_record_start + esi * 4], 0
+    mov dword [linux_mprotect_record_end + esi * 4], 0
+    mov dword [linux_mprotect_record_prot + esi * 4], 0
+    mov dword [linux_mprotect_record_owner + esi * 4], 0
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.done:
     popad
     ret
 
@@ -27352,6 +27493,10 @@ linux_mprotect_record_range:
     mov [linux_mprotect_last_start], ebx
     mov [linux_mprotect_last_end], edx
     mov [linux_mprotect_last_prot], eax
+    call linux_mprotect_current_owner
+    mov ebp, eax
+    mov [linux_mprotect_last_owner], ebp
+    inc dword [linux_mprotect_record_writes]
     mov esi, [linux_mprotect_record_next]
     cmp esi, LINUX_MPROTECT_RECORD_COUNT
     jb .slot_ready
@@ -27361,9 +27506,11 @@ linux_mprotect_record_range:
     mov [linux_mprotect_record_start + esi * 4], ebx
     mov [linux_mprotect_record_end + esi * 4], edx
     mov [linux_mprotect_record_prot + esi * 4], eax
+    mov [linux_mprotect_record_owner + esi * 4], ebp
     inc esi
     cmp esi, LINUX_MPROTECT_RECORD_COUNT
     jb .next_ready
+    inc dword [linux_mprotect_record_wraps]
     xor esi, esi
 
 .next_ready:
@@ -27372,6 +27519,16 @@ linux_mprotect_record_range:
     ret
 
 linux_mprotect_lookup_pte_flags:
+    push ebx
+    push eax
+    call linux_mprotect_current_owner
+    mov ebx, eax
+    pop eax
+    call linux_mprotect_lookup_pte_flags_for_owner
+    pop ebx
+    ret
+
+linux_mprotect_lookup_pte_flags_for_owner:
     push eax
     push ebx
     push edx
@@ -27379,6 +27536,11 @@ linux_mprotect_lookup_pte_flags:
     push edi
     push ebp
     mov ebp, eax
+    mov [linux_mprotect_lookup_page], eax
+    mov [linux_mprotect_lookup_owner], ebx
+    mov dword [linux_mprotect_lookup_slot], 0xffffffff
+    mov dword [linux_mprotect_lookup_prot], 0
+    mov dword [linux_mprotect_lookup_flags], 0
     mov esi, [linux_mprotect_record_next]
     mov edi, LINUX_MPROTECT_RECORD_COUNT
 
@@ -27391,6 +27553,8 @@ linux_mprotect_lookup_pte_flags:
 
 .slot_dec:
     dec esi
+    cmp [linux_mprotect_record_owner + esi * 4], ebx
+    jne .advance
     mov eax, [linux_mprotect_record_start + esi * 4]
     cmp eax, [linux_mprotect_record_end + esi * 4]
     jae .advance
@@ -27398,8 +27562,12 @@ linux_mprotect_lookup_pte_flags:
     jb .advance
     cmp ebp, [linux_mprotect_record_end + esi * 4]
     jae .advance
+    mov [linux_mprotect_lookup_slot], esi
     mov eax, [linux_mprotect_record_prot + esi * 4]
+    mov [linux_mprotect_lookup_prot], eax
     call linux_mprotect_prot_to_pte_flags
+    mov [linux_mprotect_lookup_flags], ecx
+    inc dword [linux_mprotect_lookup_hits]
     clc
     jmp .done
 
@@ -27408,6 +27576,7 @@ linux_mprotect_lookup_pte_flags:
     jmp .record_next
 
 .not_found:
+    inc dword [linux_mprotect_lookup_misses]
     stc
 
 .done:
@@ -27462,6 +27631,105 @@ linux_sys_mprotect:
 
 .enomem:
     mov eax, -ERRNO_ENOMEM
+    ret
+
+linux_mprotect_records_clear_current_overlap:
+    pushad
+    call linux_mprotect_current_owner
+    mov ebp, eax
+    test ebp, ebp
+    jz .done
+    mov ebx, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_MPROTECT_RECORD_COUNT
+    jae .done
+    cmp [linux_mprotect_record_owner + esi * 4], ebp
+    jne .advance
+    mov eax, [linux_mprotect_record_start + esi * 4]
+    cmp eax, [linux_mprotect_record_end + esi * 4]
+    jae .advance
+    cmp eax, edx
+    jae .advance
+    cmp [linux_mprotect_record_end + esi * 4], ebx
+    jbe .advance
+    mov ecx, [linux_mprotect_record_end + esi * 4]
+    cmp ebx, eax
+    jbe .overlap_from_head
+    cmp edx, ecx
+    jae .trim_tail
+    jmp .split_middle
+
+.overlap_from_head:
+    cmp edx, ecx
+    jae .clear_record
+    mov [linux_mprotect_record_start + esi * 4], edx
+    inc dword [linux_mprotect_munmap_clears]
+    jmp .advance
+
+.trim_tail:
+    mov [linux_mprotect_record_end + esi * 4], ebx
+    inc dword [linux_mprotect_munmap_clears]
+    jmp .advance
+
+.split_middle:
+    push ebx
+    push edx
+    push esi
+    push ecx
+    mov [linux_mprotect_record_end + esi * 4], ebx
+    mov edi, [linux_mprotect_record_prot + esi * 4]
+    xor esi, esi
+
+.split_find_free:
+    cmp esi, LINUX_MPROTECT_RECORD_COUNT
+    jae .split_no_free
+    cmp dword [linux_mprotect_record_owner + esi * 4], 0
+    jne .split_advance
+    cmp dword [linux_mprotect_record_start + esi * 4], 0
+    jne .split_advance
+    cmp dword [linux_mprotect_record_end + esi * 4], 0
+    jne .split_advance
+    mov eax, [esp + 8]
+    mov [linux_mprotect_record_start + esi * 4], eax
+    mov eax, [esp]
+    mov [linux_mprotect_record_end + esi * 4], eax
+    mov [linux_mprotect_record_prot + esi * 4], edi
+    mov [linux_mprotect_record_owner + esi * 4], ebp
+    inc dword [linux_mprotect_munmap_clears]
+    jmp .split_done
+
+.split_advance:
+    inc esi
+    jmp .split_find_free
+
+.split_no_free:
+    mov eax, [esp]
+    mov esi, [esp + 4]
+    mov [linux_mprotect_record_end + esi * 4], eax
+
+.split_done:
+    pop ecx
+    pop esi
+    pop edx
+    pop ebx
+    jmp .advance
+
+.clear_record:
+    mov dword [linux_mprotect_record_start + esi * 4], 0
+    mov dword [linux_mprotect_record_end + esi * 4], 0
+    mov dword [linux_mprotect_record_prot + esi * 4], 0
+    mov dword [linux_mprotect_record_owner + esi * 4], 0
+    inc dword [linux_mprotect_munmap_clears]
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.done:
+    popad
     ret
 
 linux_sys_getrlimit:
@@ -31222,6 +31490,12 @@ linux_sys_mmap2_file:
     inc dword [process_mmap_attempts]
     mov dword [process_mmap_last_result], 0
     mov dword [process_mmap_last_error], 0
+    mov [mmap_file_fd_arg], edi
+    mov dword [mmap_file_fd_slot], 0xffffffff
+    mov dword [mmap_file_fd_kind], 0
+    mov dword [mmap_file_cluster], 0
+    mov dword [mmap_file_size], 0
+    mov dword [mmap_file_offset_arg], 0
     cmp ecx, 0
     je .einval
     mov eax, esi
@@ -31277,6 +31551,13 @@ linux_sys_mmap2_file:
     mov ebx, [syscall_open_flags]
     call fd_lookup
     jc .ebadf
+    mov [mmap_file_fd_slot], eax
+    movzx edx, byte [fd_kinds + eax]
+    mov [mmap_file_fd_kind], edx
+    mov edx, [fd_indices + eax * 4]
+    mov [mmap_file_cluster], edx
+    mov edx, [fd_file_sizes + eax * 4]
+    mov [mmap_file_size], edx
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     jne .ebadf
     mov eax, [mmap_end_arg]
@@ -34382,6 +34663,7 @@ syscall_handler:
     mov [process_last_munmap_base], eax
     mov eax, [mmap_end_arg]
     mov [process_last_munmap_end], eax
+    call linux_mprotect_records_clear_current_overlap
     cmp eax, [esi + PROC_BRK]
     jne .munmap_keep_non_tail
     mov ebx, [esi + PROC_PAGE_DIR]
@@ -40891,6 +41173,52 @@ write_smoke_status:
     mov edx, [process_mmap_last_result]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_mmapfile_text
+    call smoke_copy_string
+    mov edx, [mmap_file_fd_arg]
+    call smoke_write_hex32
+    mov edx, [mmap_file_fd_slot]
+    call smoke_write_slash_hex32
+    mov edx, [mmap_file_fd_kind]
+    call smoke_write_slash_hex32
+    mov edx, [mmap_file_cluster]
+    call smoke_write_slash_hex32
+    mov edx, [mmap_file_size]
+    call smoke_write_slash_hex32
+    mov edx, [mmap_file_offset_arg]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_mprot_text
+    call smoke_copy_string
+    mov edx, [linux_mprotect_record_writes]
+    call smoke_write_hex32
+    mov edx, [linux_mprotect_record_wraps]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_last_start]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_last_end]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_last_prot]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_last_owner]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_page]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_owner]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_slot]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_prot]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_flags]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_hits]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_lookup_misses]
+    call smoke_write_slash_hex32
+    mov edx, [linux_mprotect_munmap_clears]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_brk_text
     call smoke_copy_string
     mov edx, [process_brk_attempts]
@@ -46123,6 +46451,8 @@ smoke_primary_asset_text db " doomwad=", 0
 smoke_doomclose_text db " doomclose=", 0
 smoke_doomsbrk_text db " doomsbrk=", 0
 smoke_mmap_text db " mmap=", 0
+smoke_mmapfile_text db " mmapfile=", 0
+smoke_mprot_text db " mprot=", 0
 smoke_brk_text db " brk=", 0
 smoke_doomerr_text db " doomerr=", 0
 smoke_doomerrno_text db " doomerrno=", 0
@@ -46965,6 +47295,9 @@ chromium_arg_headless db "--headless", 0
 chromium_arg_disable_dev_shm db "--disable-dev-shm-usage", 0
 chromium_arg_no_first_run db "--no-first-run", 0
 chromium_arg_disable_background_networking db "--disable-background-networking", 0
+chromium_arg_disable_crashpad_for_testing db "--disable-crashpad-for-testing", 0
+chromium_arg_disable_crash_reporter db "--disable-crash-reporter", 0
+chromium_arg_disable_breakpad db "--disable-breakpad", 0
 chromium_arg_user_data_dir db "--user-data-dir=/tmp/chromium-profile", 0
 chromium_arg_about_blank db "about:blank", 0
 %endif
@@ -47351,8 +47684,20 @@ process_generic2:
     dd PERSONALITY_NATIVE
     dd 0
     times 14 dd 0
+process_generic3:
+    dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
+    dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
+    dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
+    times 16 dd 0
+    dd 0, 0, 0, 0
+    dd PROC_GENERIC3_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC3_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_generic3_heap_bitmap, USER_HEAP_PAGE_COUNT
+    dd PERSONALITY_NATIVE
+    dd 0
+    times 14 dd 0
 process_generic_exec_slots:
-    dd process_generic0, process_generic1, process_generic2
+    dd process_generic0, process_generic1, process_generic2, process_generic3
 align 4
 process_user_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_preempt_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
@@ -47360,6 +47705,7 @@ process_payload_heap_bitmap times PAYLOAD_HEAP_BITMAP_BYTES db 0
 process_generic0_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_generic1_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_generic2_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
+process_generic3_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 align 4
 pmm_total_pages dd 0
 pmm_free_pages dd 0
@@ -47972,10 +48318,22 @@ large_elf_demand_stack3 dd 0
 linux_mprotect_last_start dd 0
 linux_mprotect_last_end dd 0
 linux_mprotect_last_prot dd 0
+linux_mprotect_last_owner dd 0
 linux_mprotect_record_next dd 0
+linux_mprotect_record_writes dd 0
+linux_mprotect_record_wraps dd 0
+linux_mprotect_lookup_page dd 0
+linux_mprotect_lookup_owner dd 0
+linux_mprotect_lookup_slot dd 0xffffffff
+linux_mprotect_lookup_prot dd 0
+linux_mprotect_lookup_flags dd 0
+linux_mprotect_lookup_hits dd 0
+linux_mprotect_lookup_misses dd 0
+linux_mprotect_munmap_clears dd 0
 linux_mprotect_record_start times LINUX_MPROTECT_RECORD_COUNT dd 0
 linux_mprotect_record_end times LINUX_MPROTECT_RECORD_COUNT dd 0
 linux_mprotect_record_prot times LINUX_MPROTECT_RECORD_COUNT dd 0
+linux_mprotect_record_owner times LINUX_MPROTECT_RECORD_COUNT dd 0
 process_exec_reject_active_target db 0
 process_exec_target_reusable db 0
 process_exec_lookup_depth db 0
@@ -48089,6 +48447,11 @@ mmap_prot_arg dd 0
 mmap_flags_arg dd 0
 mmap_base_arg dd 0
 mmap_end_arg dd 0
+mmap_file_fd_arg dd 0xffffffff
+mmap_file_fd_slot dd 0xffffffff
+mmap_file_fd_kind dd 0
+mmap_file_cluster dd 0
+mmap_file_size dd 0
 mmap_file_offset_arg dd 0
 mmap_page_vaddr dd 0
 mmap_page_phys dd 0
