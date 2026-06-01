@@ -22297,6 +22297,16 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_vfork_child_probe
 
+    mov edi, exec_path_linux_vfork_exit_group_probe
+    call kernel_streq
+    cmp al, 1
+    je .linux_vfork_exit_group_probe
+
+    mov edi, exec_path_linux_vfork_exit_group_child
+    call kernel_streq
+    cmp al, 1
+    je .linux_vfork_exit_group_child
+
     mov edi, exec_path_linux_dir
     call kernel_streq
     cmp al, 1
@@ -22500,6 +22510,20 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_vfork_child_probe_elf_name_83
+    jmp .linux_bin_app
+
+.linux_vfork_exit_group_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_vfork_exit_group_probe_elf_name_83
+    jmp .linux_bin_app
+
+.linux_vfork_exit_group_child:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_vfork_exit_group_child_elf_name_83
     jmp .linux_bin_app
 
 .linux_dir:
@@ -24944,6 +24968,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_VFORK_EXEC_SMOKE
     mov esi, exec_path_linux_vfork_exec_probe
 %endif
+%ifdef LINUX_M1_VFORK_EXIT_GROUP_SMOKE
+    mov esi, exec_path_linux_vfork_exit_group_probe
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -25060,6 +25087,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_VFORK_EXEC_SMOKE
     mov esi, exec_path_linux_vfork_exec_probe
+%endif
+%ifdef LINUX_M1_VFORK_EXIT_GROUP_SMOKE
+    mov esi, exec_path_linux_vfork_exit_group_probe
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -46941,6 +46971,8 @@ linux_exec_limits_elf_name_83 db "XLIMIT  ELF"
 linux_execve_probe_elf_name_83 db "EXECVE  ELF"
 linux_vfork_exec_probe_elf_name_83 db "VFORKEX ELF"
 linux_vfork_child_probe_elf_name_83 db "VFORKCH ELF"
+linux_vfork_exit_group_probe_elf_name_83 db "VFORKXGPELF"
+linux_vfork_exit_group_child_elf_name_83 db "VFORKXG ELF"
 linux_dir_elf_name_83 db "DIR     ELF"
 linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
@@ -46985,6 +47017,8 @@ exec_path_linux_exec_limits db "/BIN/XLIMIT.ELF", 0
 exec_path_linux_execve_probe db "/BIN/EXECVE.ELF", 0
 exec_path_linux_vfork_exec_probe db "/BIN/VFORKEX.ELF", 0
 exec_path_linux_vfork_child_probe db "/BIN/VFORKCH.ELF", 0
+exec_path_linux_vfork_exit_group_probe db "/BIN/VFORKXGP.ELF", 0
+exec_path_linux_vfork_exit_group_child db "/BIN/VFORKXG.ELF", 0
 exec_path_linux_dir db "/BIN/DIR.ELF", 0
 exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
