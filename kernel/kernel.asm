@@ -987,7 +987,7 @@ MMAP_MAP_POPULATE equ 0x00008000
 MMAP_MAP_STACK equ 0x00020000
 MMAP_SUPPORTED_FLAGS equ MMAP_MAP_SHARED | MMAP_MAP_PRIVATE | MMAP_MAP_FIXED | MMAP_MAP_ANONYMOUS | MMAP_MAP_DENYWRITE | MMAP_MAP_EXECUTABLE | MMAP_MAP_NORESERVE | MMAP_MAP_POPULATE | MMAP_MAP_STACK
 LINUX_MPROTECT_RECORD_COUNT equ 16
-LINUX_MMAP_LAZY_FILE_RECORD_COUNT equ 60
+LINUX_MMAP_LAZY_FILE_RECORD_COUNT equ 256
 IOCTL_DISPLAY_FD equ 1
 IOCTL_AUDIO_FD equ 0x00004155
 VIBE_IOCTL_FBINFO equ 0x00005601
@@ -22332,6 +22332,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je near .linux_mmap_large
 
+    mov edi, exec_path_linux_mmap_many
+    call kernel_streq
+    cmp al, 1
+    je near .linux_mmap_many
+
     mov edi, exec_path_linux_pipe
     call kernel_streq
     cmp al, 1
@@ -22581,6 +22586,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_mmap_large_elf_name_83
+    jmp .linux_bin_app
+
+.linux_mmap_many:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_mmap_many_elf_name_83
     jmp .linux_bin_app
 
 .linux_pipe:
@@ -25013,6 +25025,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_MMAP_LARGE_SMOKE
     mov esi, exec_path_linux_mmap_large
 %endif
+%ifdef LINUX_M1_MMAP_MANY_SMOKE
+    mov esi, exec_path_linux_mmap_many
+%endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
 %endif
@@ -25145,6 +25160,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_MMAP_LARGE_SMOKE
     mov esi, exec_path_linux_mmap_large
+%endif
+%ifdef LINUX_M1_MMAP_MANY_SMOKE
+    mov esi, exec_path_linux_mmap_many
 %endif
 %ifdef LINUX_M1_PROCID_SMOKE
     mov esi, exec_path_linux_procid
@@ -35356,6 +35374,12 @@ syscall_handler:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .mmap_enomem
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jz .mmap_metadata_ready
+    call linux_mprotect_records_clear_current_overlap
+    call linux_mmap_lazy_file_records_clear_current_overlap
+
+.mmap_metadata_ready:
     mov eax, [mmap_base_arg]
     mov edx, [mmap_end_arg]
     call process_heap_mark_range
@@ -47741,6 +47765,7 @@ linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_llseek_elf_name_83 db "LLSEEK  ELF"
 linux_mmap_large_elf_name_83 db "MMAPLG  ELF"
+linux_mmap_many_elf_name_83 db "MMAPMNY ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
 linux_rseq_elf_name_83 db "RSEQ    ELF"
@@ -47793,6 +47818,7 @@ exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_llseek db "/BIN/LLSEEK.ELF", 0
 exec_path_linux_mmap_large db "/BIN/MMAPLG.ELF", 0
+exec_path_linux_mmap_many db "/BIN/MMAPMNY.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
@@ -49363,12 +49389,16 @@ mmap_file_offset_arg dd 0
 mmap_page_vaddr dd 0
 mmap_page_phys dd 0
 mmap_saved_fd_offset dd 0
-linux_mmap_lazy_file_owner times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
-linux_mmap_lazy_file_base times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
-linux_mmap_lazy_file_end times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
-linux_mmap_lazy_file_cluster times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
-linux_mmap_lazy_file_size times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
-linux_mmap_lazy_file_offset times LINUX_MMAP_LAZY_FILE_RECORD_COUNT dd 0
+section .bss
+align 4
+linux_mmap_lazy_file_owner resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_file_base resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_file_end resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_file_cluster resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_file_size resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_file_offset resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+
+section .text
 linux_mmap_lazy_last_slot dd 0xffffffff
 linux_mmap_lazy_last_page dd 0
 linux_mmap_lazy_last_offset dd 0
