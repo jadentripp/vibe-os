@@ -1,6 +1,6 @@
 ; vfork_exec_probe.asm - Linux i386 vfork-shaped clone plus execve proof.
 ;
-; The parent must resume after the child successfully execs /BIN/HELLO.ELF,
+; The parent must resume after the child successfully execs /BIN/VFORKCH.ELF,
 ; then waitpid must reap that exec target under the original child pid.
 bits 32
 global start
