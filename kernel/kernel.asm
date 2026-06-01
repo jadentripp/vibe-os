@@ -25130,15 +25130,6 @@ linux_m1_smoke_stage_chromium:
     mov esi, chromium_arg_disable_background_networking
     call sys_exec_stage_kernel_arg_append
     jc .done
-    mov esi, chromium_arg_disable_crashpad_for_testing
-    call sys_exec_stage_kernel_arg_append
-    jc .done
-    mov esi, chromium_arg_disable_crash_reporter
-    call sys_exec_stage_kernel_arg_append
-    jc .done
-    mov esi, chromium_arg_disable_breakpad
-    call sys_exec_stage_kernel_arg_append
-    jc .done
     mov esi, chromium_arg_user_data_dir
     call sys_exec_stage_kernel_arg_append
     jc .done
@@ -27493,6 +27484,7 @@ linux_mprotect_record_range:
     mov [linux_mprotect_last_start], ebx
     mov [linux_mprotect_last_end], edx
     mov [linux_mprotect_last_prot], eax
+    mov edi, eax
     call linux_mprotect_current_owner
     mov ebp, eax
     mov [linux_mprotect_last_owner], ebp
@@ -27505,7 +27497,7 @@ linux_mprotect_record_range:
 .slot_ready:
     mov [linux_mprotect_record_start + esi * 4], ebx
     mov [linux_mprotect_record_end + esi * 4], edx
-    mov [linux_mprotect_record_prot + esi * 4], eax
+    mov [linux_mprotect_record_prot + esi * 4], edi
     mov [linux_mprotect_record_owner + esi * 4], ebp
     inc esi
     cmp esi, LINUX_MPROTECT_RECORD_COUNT
@@ -47000,7 +46992,7 @@ chromium_chrome200_name_83 db "CHR200  PAK"
 chromium_en_us_name_83 db "EN-US   PAK"
 chromium_snapshot_blob_name_83 db "SNAPBLOBBIN"
 chromium_v8_context_name_83 db "V8CONTXTBIN"
-chromium_crashpad_name_83 db "CRASHPAD ELF"
+chromium_crashpad_name_83 db "CRASHPADELF"
 %endif
 linux_path_lib_i386_libglib db "/lib/i386-linux-gnu/libglib-2.0.so.0", 0
 linux_path_lib_i386_libglib_end:
@@ -47295,9 +47287,6 @@ chromium_arg_headless db "--headless", 0
 chromium_arg_disable_dev_shm db "--disable-dev-shm-usage", 0
 chromium_arg_no_first_run db "--no-first-run", 0
 chromium_arg_disable_background_networking db "--disable-background-networking", 0
-chromium_arg_disable_crashpad_for_testing db "--disable-crashpad-for-testing", 0
-chromium_arg_disable_crash_reporter db "--disable-crash-reporter", 0
-chromium_arg_disable_breakpad db "--disable-breakpad", 0
 chromium_arg_user_data_dir db "--user-data-dir=/tmp/chromium-profile", 0
 chromium_arg_about_blank db "about:blank", 0
 %endif
