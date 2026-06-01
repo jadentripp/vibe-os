@@ -27985,6 +27985,8 @@ linux_mmap_lazy_file_records_clear:
     mov dword [linux_mmap_lazy_last_error], 0
     mov dword [linux_mmap_lazy_copy_done], 0
     mov dword [linux_mmap_lazy_sector_offset], 0
+    mov dword [linux_mmap_lazy_reserved_slot], 0xffffffff
+    mov dword [linux_mmap_lazy_clear_failed], 0
     popad
     ret
 
@@ -28034,20 +28036,52 @@ linux_mmap_lazy_file_records_clear_for_exec_target:
 
 linux_mmap_lazy_file_register_current:
     pushad
+    mov dword [linux_mmap_lazy_reserved_slot], 0xffffffff
     call linux_mprotect_current_owner
     mov ebp, eax
     test ebp, ebp
     jz .enomem
 
 .find_slot:
-    call linux_mmap_lazy_file_records_clear_current_overlap
     xor esi, esi
 
-.slot_next:
+.reserve_next:
     cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
     jae .enomem
     cmp dword [linux_mmap_lazy_file_owner + esi * 4], 0
-    jne .advance
+    je .reserve_slot
+    inc esi
+    jmp .reserve_next
+
+.reserve_slot:
+    mov [linux_mmap_lazy_reserved_slot], esi
+    call linux_mmap_lazy_file_records_clear_current_overlap
+    jc .enomem
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jz .fill_slot
+    call linux_mprotect_records_clear_current_overlap
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .fixed_pages_done
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .fixed_have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.fixed_have_page_dir:
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_clear_user_range
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .fixed_pages_done
+    mov cr3, ebx
+
+.fixed_pages_done:
+    pop esi
+
+.fill_slot:
     mov [linux_mmap_lazy_file_owner + esi * 4], ebp
     mov eax, [mmap_base_arg]
     mov [linux_mmap_lazy_file_base + esi * 4], eax
@@ -28066,10 +28100,6 @@ linux_mmap_lazy_file_register_current:
     clc
     jmp .done
 
-.advance:
-    inc esi
-    jmp .slot_next
-
 .enomem:
     inc dword [linux_mmap_lazy_failures]
     mov dword [linux_mmap_lazy_last_status], 0xfffffffe
@@ -28077,11 +28107,13 @@ linux_mmap_lazy_file_register_current:
     stc
 
 .done:
+    mov dword [linux_mmap_lazy_reserved_slot], 0xffffffff
     popad
     ret
 
 linux_mmap_lazy_file_records_clear_current_overlap:
     pushad
+    mov dword [linux_mmap_lazy_clear_failed], 0
     call linux_mprotect_current_owner
     mov ebp, eax
     test ebp, ebp
@@ -28107,7 +28139,7 @@ linux_mmap_lazy_file_records_clear_current_overlap:
     jbe .overlap_from_head
     cmp edx, ecx
     jae .trim_tail
-    jmp .advance
+    jmp .split_middle
 
 .overlap_from_head:
     cmp edx, ecx
@@ -28122,6 +28154,54 @@ linux_mmap_lazy_file_records_clear_current_overlap:
     mov [linux_mmap_lazy_file_end + esi * 4], ebx
     jmp .advance
 
+.split_middle:
+    mov [linux_mmap_lazy_split_tail_base], edx
+    mov [linux_mmap_lazy_split_tail_end], ecx
+    mov edi, edx
+    sub edi, eax
+    add edi, [linux_mmap_lazy_file_offset + esi * 4]
+    mov [linux_mmap_lazy_split_tail_offset], edi
+    mov edi, [linux_mmap_lazy_file_cluster + esi * 4]
+    mov [linux_mmap_lazy_split_tail_cluster], edi
+    mov edi, [linux_mmap_lazy_file_size + esi * 4]
+    mov [linux_mmap_lazy_split_tail_size], edi
+    push esi
+    xor esi, esi
+
+.split_find_free:
+    cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+    jae .split_no_free
+    cmp esi, [linux_mmap_lazy_reserved_slot]
+    je .split_advance
+    cmp dword [linux_mmap_lazy_file_owner + esi * 4], 0
+    jne .split_advance
+    mov [linux_mmap_lazy_file_owner + esi * 4], ebp
+    mov eax, [linux_mmap_lazy_split_tail_base]
+    mov [linux_mmap_lazy_file_base + esi * 4], eax
+    mov eax, [linux_mmap_lazy_split_tail_end]
+    mov [linux_mmap_lazy_file_end + esi * 4], eax
+    mov eax, [linux_mmap_lazy_split_tail_cluster]
+    mov [linux_mmap_lazy_file_cluster + esi * 4], eax
+    mov eax, [linux_mmap_lazy_split_tail_size]
+    mov [linux_mmap_lazy_file_size + esi * 4], eax
+    mov eax, [linux_mmap_lazy_split_tail_offset]
+    mov [linux_mmap_lazy_file_offset + esi * 4], eax
+    pop esi
+    mov [linux_mmap_lazy_file_end + esi * 4], ebx
+    jmp .advance
+
+.split_advance:
+    inc esi
+    jmp .split_find_free
+
+.split_no_free:
+    pop esi
+    inc dword [linux_mmap_lazy_failures]
+    mov dword [linux_mmap_lazy_last_status], 0xfffffffe
+    mov dword [linux_mmap_lazy_last_error], -ERRNO_ENOMEM
+    mov dword [linux_mmap_lazy_clear_failed], 1
+    jmp .done
+
 .clear_record:
     call linux_mmap_lazy_file_clear_slot
 
@@ -28130,7 +28210,56 @@ linux_mmap_lazy_file_records_clear_current_overlap:
     jmp .slot_next
 
 .done:
+    cmp dword [linux_mmap_lazy_clear_failed], 0
+    jne .failed
+    clc
     popad
+    ret
+
+.failed:
+    stc
+    popad
+    ret
+
+linux_mmap_fixed_clear_current_range:
+    push eax
+    push ebx
+    push edx
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .success
+    call linux_mmap_lazy_file_records_clear_current_overlap
+    jc .fail
+    call linux_mprotect_records_clear_current_overlap
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.have_page_dir:
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_clear_user_range
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .success
+    mov cr3, ebx
+
+.success:
+    pop esi
+    pop edx
+    pop ebx
+    pop eax
+    clc
+    ret
+
+.fail:
+    pop esi
+    pop edx
+    pop ebx
+    pop eax
+    stc
     ret
 
 linux_mmap_lazy_file_page_fault:
@@ -32318,6 +32447,12 @@ linux_sys_mmap2_file:
     ja .high_file_map
 
 .low_file_map:
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jz .low_file_fixed_clear_done
+    call linux_mmap_fixed_clear_current_range
+    jc .enomem
+
+.low_file_fixed_clear_done:
     mov ebx, [esi + PROC_PAGE_DIR]
     test ebx, ebx
     jnz .have_page_dir
@@ -32384,6 +32519,12 @@ linux_sys_mmap2_file:
     jmp .enomem
 
 .high_eager_file_map:
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jz .high_eager_fixed_clear_done
+    call linux_mmap_fixed_clear_current_range
+    jc .enomem
+
+.high_eager_fixed_clear_done:
     mov eax, [mmap_base_arg]
     mov edx, [mmap_end_arg]
     call process_heap_mark_range
@@ -35274,6 +35415,12 @@ syscall_handler:
     cmp edx, [esi + PROC_HEAP_END]
     ja .mmap_enomem
     mov [mmap_end_arg], edx
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jz .mmap_fixed_clear_done
+    call linux_mmap_fixed_clear_current_range
+    jc .mmap_enomem
+
+.mmap_fixed_clear_done:
     cmp edx, PAGING_MAPPED_BYTES
     ja .mmap_high_anon
     mov ebx, [esi + PROC_PAGE_DIR]
@@ -35374,12 +35521,6 @@ syscall_handler:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .mmap_enomem
-    test dword [mmap_flags_arg], MMAP_MAP_FIXED
-    jz .mmap_metadata_ready
-    call linux_mprotect_records_clear_current_overlap
-    call linux_mmap_lazy_file_records_clear_current_overlap
-
-.mmap_metadata_ready:
     mov eax, [mmap_base_arg]
     mov edx, [mmap_end_arg]
     call process_heap_mark_range
@@ -49397,6 +49538,13 @@ linux_mmap_lazy_file_end resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
 linux_mmap_lazy_file_cluster resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
 linux_mmap_lazy_file_size resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
 linux_mmap_lazy_file_offset resd LINUX_MMAP_LAZY_FILE_RECORD_COUNT
+linux_mmap_lazy_reserved_slot resd 1
+linux_mmap_lazy_clear_failed resd 1
+linux_mmap_lazy_split_tail_base resd 1
+linux_mmap_lazy_split_tail_end resd 1
+linux_mmap_lazy_split_tail_cluster resd 1
+linux_mmap_lazy_split_tail_size resd 1
+linux_mmap_lazy_split_tail_offset resd 1
 
 section .text
 linux_mmap_lazy_last_slot dd 0xffffffff
