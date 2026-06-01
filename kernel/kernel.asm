@@ -481,6 +481,7 @@ PTE_WRITE equ 0x002
 PTE_USER equ 0x004
 PTE_PWT equ 0x008
 PTE_PCD equ 0x010
+PTE_LINUX_PROT_NONE equ 0x200
 PTE_KERNEL_FLAGS equ PTE_PRESENT | PTE_WRITE
 PTE_KERNEL_MMIO_FLAGS equ PTE_KERNEL_FLAGS | PTE_PWT | PTE_PCD
 PTE_USER_READ_FLAGS equ PTE_PRESENT | PTE_USER
@@ -982,6 +983,7 @@ MMAP_MAP_NORESERVE equ 0x00004000
 MMAP_MAP_POPULATE equ 0x00008000
 MMAP_MAP_STACK equ 0x00020000
 MMAP_SUPPORTED_FLAGS equ MMAP_MAP_SHARED | MMAP_MAP_PRIVATE | MMAP_MAP_FIXED | MMAP_MAP_ANONYMOUS | MMAP_MAP_DENYWRITE | MMAP_MAP_EXECUTABLE | MMAP_MAP_NORESERVE | MMAP_MAP_POPULATE | MMAP_MAP_STACK
+LINUX_MPROTECT_RECORD_COUNT equ 16
 IOCTL_DISPLAY_FD equ 1
 IOCTL_AUDIO_FD equ 0x00004155
 VIBE_IOCTL_FBINFO equ 0x00005601
@@ -7230,7 +7232,11 @@ vmm_update_process_present_user_range_flags:
     test edx, PTE_PRESENT
     jz .advance
     test edx, PTE_USER
+    jnz .update
+    test edx, PTE_LINUX_PROT_NONE
     jz .advance
+
+.update:
     and edx, 0xfffff000
     or edx, ebp
     mov ecx, edx
@@ -12697,9 +12703,7 @@ storage_init:
     mov dword [linux_syscall_after_demand_count], 0
     mov dword [linux_syscall_after_demand_nr], 0
     mov dword [linux_syscall_after_demand_eip], 0
-    mov dword [linux_mprotect_last_start], 0
-    mov dword [linux_mprotect_last_end], 0
-    mov dword [linux_mprotect_last_prot], 0
+    call linux_mprotect_records_clear
     mov byte [process_exec_reject_active_target], 0
     mov dword [sys_exec_stage_base], 0
     mov dword [sys_exec_stage_alloc_status], 0
@@ -19172,7 +19176,11 @@ process_free_owned_user_page:
     test edx, PTE_PRESENT
     jz .done
     test edx, PTE_USER
+    jnz .owned_user_page
+    test edx, PTE_LINUX_PROT_NONE
     jz .done
+
+.owned_user_page:
     mov ebx, edx
     and ebx, 0xfffff000
     mov ecx, eax
@@ -22222,6 +22230,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_ldso_header
 
+    mov edi, exec_path_linux_ldso_reloc
+    call kernel_streq
+    cmp al, 1
+    je .linux_ldso_reloc
+
     mov edi, exec_path_linux_ldoom
     call kernel_streq
     cmp al, 1
@@ -22440,6 +22453,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_ldso_header_elf_name_83
+    jmp .linux_bin_app
+
+.linux_ldso_reloc:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_ldso_reloc_elf_name_83
     jmp .linux_bin_app
 
 .linux_ldoom:
@@ -22880,9 +22900,7 @@ process_exec_large_linux_preflight:
     mov dword [linux_syscall_after_demand_count], 0
     mov dword [linux_syscall_after_demand_nr], 0
     mov dword [linux_syscall_after_demand_eip], 0
-    mov dword [linux_mprotect_last_start], 0
-    mov dword [linux_mprotect_last_end], 0
-    mov dword [linux_mprotect_last_prot], 0
+    call linux_mprotect_records_clear
 
     mov ebx, [process_exec_size]
     cmp ebx, LARGE_ELF_PREFLIGHT_BYTES
@@ -23456,15 +23474,13 @@ process_exec_large_linux_map_file_page:
     or ecx, PTE_USER_READ_FLAGS
 
 .mprotect_check:
+    mov edx, ecx
+    and edx, 0xfffff000
     mov eax, [large_elf_last_map_vaddr]
-    cmp eax, [linux_mprotect_last_start]
-    jb .pte_ready
-    cmp eax, [linux_mprotect_last_end]
-    jae .pte_ready
-    test dword [linux_mprotect_last_prot], MMAP_PROT_WRITE
-    jz .pte_ready
-    and ecx, 0xfffff000
-    or ecx, PTE_USER_WRITE_FLAGS
+    call linux_mprotect_lookup_pte_flags
+    jc .pte_ready
+    or edx, ecx
+    mov ecx, edx
 
 .pte_ready:
     mov eax, [large_elf_last_map_vaddr]
@@ -23532,6 +23548,8 @@ large_elf_demand_page_fault:
     test edx, PTE_PRESENT
     jz .reject
     test edx, PTE_USER
+    jnz .reject
+    test edx, PTE_LINUX_PROT_NONE
     jnz .reject
 
 .fault_demandable:
@@ -24771,6 +24789,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_LDSOHDR_SMOKE
     mov esi, exec_path_linux_ldso_header
 %endif
+%ifdef LINUX_M1_LDSOREL_SMOKE
+    mov esi, exec_path_linux_ldso_reloc
+%endif
 %ifdef LINUX_M1_EXECVE_SMOKE
     mov esi, exec_path_linux_execve_probe
 %endif
@@ -24884,6 +24905,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_LDSOHDR_SMOKE
     mov esi, exec_path_linux_ldso_header
+%endif
+%ifdef LINUX_M1_LDSOREL_SMOKE
+    mov esi, exec_path_linux_ldso_reloc
 %endif
 %ifdef LINUX_M1_EXECVE_SMOKE
     mov esi, exec_path_linux_execve_probe
@@ -27297,6 +27321,104 @@ linux_sys_brk:
     inc dword [process_brk_successes]
     ret
 
+linux_mprotect_prot_to_pte_flags:
+    mov ecx, PTE_PRESENT | PTE_LINUX_PROT_NONE
+    test eax, MMAP_PROT_READ | MMAP_PROT_WRITE | MMAP_PROT_EXEC
+    jz .done
+    mov ecx, PTE_USER_READ_FLAGS
+    test eax, MMAP_PROT_WRITE
+    jz .done
+    mov ecx, PTE_USER_WRITE_FLAGS
+
+.done:
+    ret
+
+linux_mprotect_records_clear:
+    pushad
+    xor eax, eax
+    mov [linux_mprotect_last_start], eax
+    mov [linux_mprotect_last_end], eax
+    mov [linux_mprotect_last_prot], eax
+    mov [linux_mprotect_record_next], eax
+    mov edi, linux_mprotect_record_start
+    mov ecx, LINUX_MPROTECT_RECORD_COUNT * 3
+    cld
+    rep stosd
+    popad
+    ret
+
+linux_mprotect_record_range:
+    pushad
+    mov [linux_mprotect_last_start], ebx
+    mov [linux_mprotect_last_end], edx
+    mov [linux_mprotect_last_prot], eax
+    mov esi, [linux_mprotect_record_next]
+    cmp esi, LINUX_MPROTECT_RECORD_COUNT
+    jb .slot_ready
+    xor esi, esi
+
+.slot_ready:
+    mov [linux_mprotect_record_start + esi * 4], ebx
+    mov [linux_mprotect_record_end + esi * 4], edx
+    mov [linux_mprotect_record_prot + esi * 4], eax
+    inc esi
+    cmp esi, LINUX_MPROTECT_RECORD_COUNT
+    jb .next_ready
+    xor esi, esi
+
+.next_ready:
+    mov [linux_mprotect_record_next], esi
+    popad
+    ret
+
+linux_mprotect_lookup_pte_flags:
+    push eax
+    push ebx
+    push edx
+    push esi
+    push edi
+    push ebp
+    mov ebp, eax
+    mov esi, [linux_mprotect_record_next]
+    mov edi, LINUX_MPROTECT_RECORD_COUNT
+
+.record_next:
+    cmp edi, 0
+    je .not_found
+    cmp esi, 0
+    jne .slot_dec
+    mov esi, LINUX_MPROTECT_RECORD_COUNT
+
+.slot_dec:
+    dec esi
+    mov eax, [linux_mprotect_record_start + esi * 4]
+    cmp eax, [linux_mprotect_record_end + esi * 4]
+    jae .advance
+    cmp ebp, eax
+    jb .advance
+    cmp ebp, [linux_mprotect_record_end + esi * 4]
+    jae .advance
+    mov eax, [linux_mprotect_record_prot + esi * 4]
+    call linux_mprotect_prot_to_pte_flags
+    clc
+    jmp .done
+
+.advance:
+    dec edi
+    jmp .record_next
+
+.not_found:
+    stc
+
+.done:
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
 linux_sys_mprotect:
     cmp ecx, 0
     je .ok
@@ -27312,26 +27434,21 @@ linux_sys_mprotect:
     add edx, PAGE_SIZE - 1
     jc .einval
     and edx, 0xfffff000
-    mov [linux_mprotect_last_start], ebx
-    mov [linux_mprotect_last_end], edx
-    mov eax, [linux_sys_last_arg2]
-    mov [linux_mprotect_last_prot], eax
-    mov eax, ebx
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .einval
+    mov eax, [linux_sys_last_arg2]
+    call linux_mprotect_record_range
+    mov eax, ebx
     mov ebx, [esi + PROC_PAGE_DIR]
     test ebx, ebx
     jnz .have_page_dir
     mov ebx, PAGING_DIR_ADDR
 
 .have_page_dir:
-    mov ecx, PTE_USER_READ_FLAGS
-    test dword [linux_sys_last_arg2], MMAP_PROT_WRITE
-    jz .flags_ready
-    mov ecx, PTE_USER_WRITE_FLAGS
-
-.flags_ready:
+    mov eax, [linux_sys_last_arg2]
+    call linux_mprotect_prot_to_pte_flags
+    mov eax, [linux_mprotect_last_start]
     call vmm_update_process_present_user_range_flags
     jc .enomem
 
@@ -46405,6 +46522,7 @@ linux_proc_self_exe_elf_name_83 db "PROCEXE ELF"
 linux_procid_elf_name_83 db "PROCID  ELF"
 linux_libmagic_elf_name_83 db "LIBMAGICELF"
 linux_ldso_header_elf_name_83 db "LDSOHDR ELF"
+linux_ldso_reloc_elf_name_83 db "LDSOREL ELF"
 linux_ldoom_elf_name_83 db "LDOOM   ELF"
 linux_busybox_elf_name_83 db "BUSYBOX ELF"
 linux_tmpdir_elf_name_83 db "TMPDIR  ELF"
@@ -46448,6 +46566,7 @@ exec_path_linux_proc_self_exe db "/BIN/PROCEXE.ELF", 0
 exec_path_linux_procid db "/BIN/PROCID.ELF", 0
 exec_path_linux_libmagic db "/BIN/LIBMAGIC.ELF", 0
 exec_path_linux_ldso_header db "/BIN/LDSOHDR.ELF", 0
+exec_path_linux_ldso_reloc db "/BIN/LDSOREL.ELF", 0
 exec_path_linux_ldoom db "/BIN/LDOOM.ELF", 0
 exec_path_linux_busybox db "/BIN/BUSYBOX.ELF", 0
 exec_path_linux_tmpdir db "/BIN/TMPDIR.ELF", 0
@@ -47853,6 +47972,10 @@ large_elf_demand_stack3 dd 0
 linux_mprotect_last_start dd 0
 linux_mprotect_last_end dd 0
 linux_mprotect_last_prot dd 0
+linux_mprotect_record_next dd 0
+linux_mprotect_record_start times LINUX_MPROTECT_RECORD_COUNT dd 0
+linux_mprotect_record_end times LINUX_MPROTECT_RECORD_COUNT dd 0
+linux_mprotect_record_prot times LINUX_MPROTECT_RECORD_COUNT dd 0
 process_exec_reject_active_target db 0
 process_exec_target_reusable db 0
 process_exec_lookup_depth db 0
