@@ -1224,6 +1224,7 @@ ERRNO_EAGAIN equ 11
 ERRNO_ENOMEM equ 12
 ERRNO_EACCES equ 13
 ERRNO_EFAULT equ 14
+ERRNO_EBUSY equ 16
 ERRNO_ENOTDIR equ 20
 ERRNO_EISDIR equ 21
 ERRNO_EINVAL equ 22
@@ -12419,6 +12420,10 @@ storage_init:
     mov dword [linux_sys_last_error_arg1], 0
     mov dword [linux_sys_last_error_arg2], 0
     mov dword [linux_sys_last_error_arg3], 0
+    mov dword [linux_rseq_owner_pid], 0xffffffff
+    mov dword [linux_rseq_ptr], 0
+    mov dword [linux_rseq_len], 0
+    mov dword [linux_rseq_sig], 0
     mov dword [linux_path_last_nr], 0
     mov dword [linux_path_last_ret], 0
     mov dword [linux_path_last_ptr], 0
@@ -22320,6 +22325,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_fork
 
+    mov edi, exec_path_linux_rseq
+    call kernel_streq
+    cmp al, 1
+    je .linux_rseq
+
 %ifdef LINUX_M1_CLONE3_SMOKE
     mov edi, exec_path_linux_clone3
     call kernel_streq
@@ -22554,6 +22564,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_fork_elf_name_83
+    jmp .linux_bin_app
+
+.linux_rseq:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_rseq_elf_name_83
     jmp .linux_bin_app
 
 %ifdef LINUX_M1_CLONE3_SMOKE
@@ -24979,6 +24996,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_VFORK_EXIT_GROUP_SMOKE
     mov esi, exec_path_linux_vfork_exit_group_probe
 %endif
+%ifdef LINUX_M1_RSEQ_SMOKE
+    mov esi, exec_path_linux_rseq
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -25102,6 +25122,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_VFORK_EXIT_GROUP_SMOKE
     mov esi, exec_path_linux_vfork_exit_group_probe
+%endif
+%ifdef LINUX_M1_RSEQ_SMOKE
+    mov esi, exec_path_linux_rseq
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -26512,6 +26535,11 @@ LINUX_FUTEX_CMD_MASK equ 0x7f
 LINUX_FUTEX_PRIVATE_FLAG equ 0x80
 LINUX_FUTEX_WAIT equ 0
 LINUX_FUTEX_WAKE equ 1
+LINUX_RSEQ_BYTES equ 0x20
+LINUX_RSEQ_CPU_ID_START equ 0
+LINUX_RSEQ_CPU_ID equ 4
+LINUX_RSEQ_FLAG_UNREGISTER equ 0x1
+LINUX_RSEQ_SIG equ 0x53053053
 LINUX_DIRENT64_INO equ 0
 LINUX_DIRENT64_OFF equ 8
 LINUX_DIRENT64_RECLEN equ 16
@@ -28496,7 +28524,67 @@ linux_synthetic_file_read:
 %endif
 
 linux_sys_rseq:
-    mov eax, -ERRNO_ENOSYS
+    cmp edx, 0
+    je .register
+    cmp edx, LINUX_RSEQ_FLAG_UNREGISTER
+    je .unregister
+    jmp .einval
+
+.register:
+    cmp ecx, LINUX_RSEQ_BYTES
+    jne .einval
+    cmp esi, LINUX_RSEQ_SIG
+    jne .einval
+    mov eax, ebx
+    mov ebx, LINUX_RSEQ_BYTES
+    call user_range_validate
+    jc .efault
+    mov edi, [current_process_ptr]
+    cmp edi, 0
+    je .einval
+    mov edx, [current_pid]
+    cmp [linux_rseq_owner_pid], edx
+    jne .register_fresh
+    mov eax, -ERRNO_EBUSY
+    ret
+
+.register_fresh:
+    mov [linux_rseq_owner_pid], edx
+    mov [linux_rseq_ptr], eax
+    mov dword [linux_rseq_len], LINUX_RSEQ_BYTES
+    mov dword [linux_rseq_sig], LINUX_RSEQ_SIG
+    mov dword [eax + LINUX_RSEQ_CPU_ID_START], 0
+    mov dword [eax + LINUX_RSEQ_CPU_ID], 0
+    xor eax, eax
+    ret
+
+.unregister:
+    cmp ecx, LINUX_RSEQ_BYTES
+    jne .einval
+    cmp esi, LINUX_RSEQ_SIG
+    jne .einval
+    mov eax, ebx
+    mov ebx, LINUX_RSEQ_BYTES
+    call user_range_validate
+    jc .efault
+    mov edx, [current_pid]
+    cmp [linux_rseq_owner_pid], edx
+    jne .einval
+    cmp [linux_rseq_ptr], eax
+    jne .einval
+    mov dword [linux_rseq_owner_pid], 0xffffffff
+    mov dword [linux_rseq_ptr], 0
+    mov dword [linux_rseq_len], 0
+    mov dword [linux_rseq_sig], 0
+    xor eax, eax
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
     ret
 
 linux_sys_readlink:
@@ -47089,6 +47177,7 @@ linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
+linux_rseq_elf_name_83 db "RSEQ    ELF"
 %ifdef LINUX_M1_CLONE3_SMOKE
 linux_clone3_elf_name_83 db "CLONE3  ELF"
 %endif
@@ -47138,6 +47227,7 @@ exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
+exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
 %ifdef LINUX_M1_CLONE3_SMOKE
 exec_path_linux_clone3 db "/BIN/CLONE3.ELF", 0
 %endif
@@ -48976,6 +49066,10 @@ linux_syscall_after_demand_sequence dd 0
 linux_syscall_after_demand_count dd 0
 linux_syscall_after_demand_nr dd 0
 linux_syscall_after_demand_eip dd 0
+linux_rseq_owner_pid dd 0xffffffff
+linux_rseq_ptr dd 0
+linux_rseq_len dd 0
+linux_rseq_sig dd 0
 linux_socket_last_call dd 0
 linux_socket_last_subcall dd 0
 linux_socket_last_fd dd 0

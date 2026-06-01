@@ -1,7 +1,7 @@
 ; libmagic_probe.asm - Linux i386 shared-library alias read probe for vibe-os.
 ;
-; Reads the first bytes of the Chromium libglib path that ld.so reports as an
-; invalid ELF header, proving whether the guest VFS returns the real ELF data.
+; Proves ld.so.cache ENOENT is a benign loader fallback, then reads the first
+; bytes of the Chromium libglib alias to verify the guest VFS returns ELF data.
 bits 32
 global start
 
@@ -14,10 +14,20 @@ global start
 %define AT_FDCWD    0xffffff9c
 %define O_RDONLY    0x00000000
 %define O_CLOEXEC   0x00080000
+%define ENOENT      2
 %define ELF_MAGIC   0x464c457f
 
 section .text
 start:
+    mov eax, SYS_OPENAT
+    mov ebx, AT_FDCWD
+    mov ecx, path_ldso_cache
+    mov edx, O_RDONLY | O_CLOEXEC
+    xor esi, esi
+    int 0x80
+    cmp eax, -ENOENT
+    jne fail
+
     mov eax, SYS_OPENAT
     mov ebx, AT_FDCWD
     mov ecx, path_glib
@@ -81,6 +91,7 @@ fail:
     int 0x80
 
 section .data
+path_ldso_cache: db "/etc/ld.so.cache", 0
 path_glib: db "/lib/i386-linux-gnu/libglib-2.0.so.0", 0
 ok_msg:    db "libmagic ok", 10
 ok_len     equ $ - ok_msg

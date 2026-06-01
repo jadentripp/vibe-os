@@ -15,6 +15,7 @@ fd_probe
 dev_null_probe
 pipe_probe
 fork_probe
+clone3_probe
 proc_self_exe_probe
 tmp_dir_probe
 procid_probe
@@ -27,6 +28,7 @@ epoll_probe
 timerfd_probe
 futex_probe
 thread_probe
+rseq_probe
 hello_musl
 hello_glibc
 libc_probe
