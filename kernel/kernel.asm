@@ -19951,8 +19951,6 @@ process_clone_user_vm:
 
     mov eax, cr3
     mov [process_fork_saved_cr3], eax
-    mov eax, PAGING_DIR_ADDR
-    mov cr3, eax
     mov dword [process_fork_pages_copied_last], 0
     mov dword [process_fork_parent_phys], 0
     mov dword [process_fork_copy_phys], 0
@@ -19969,6 +19967,7 @@ process_clone_user_vm:
     test eax, eax
     jz .fail
     mov [process_fork_parent_page_dir], eax
+    mov cr3, eax
     mov eax, [edi + PROC_PAGE_DIR]
     test eax, eax
     jz .fail
@@ -20079,24 +20078,17 @@ process_clone_present_user_range:
     mov [process_fork_copy_phys], eax
     pushfd
     cli
-    mov eax, FORK_COPY_SRC_ALIAS
-    mov ebx, [process_fork_parent_phys]
-    mov ecx, PTE_KERNEL_FLAGS
-    call vmm_map_page
-    jc .copy_alias_fail
     mov eax, FORK_COPY_DST_ALIAS
     mov ebx, [process_fork_copy_phys]
     mov ecx, PTE_KERNEL_FLAGS
     call vmm_map_page
-    jc .copy_dst_alias_fail
-    mov esi, FORK_COPY_SRC_ALIAS
+    jc .copy_alias_fail
+    mov esi, [process_fork_copy_vaddr]
     mov edi, FORK_COPY_DST_ALIAS
     mov ecx, PAGE_SIZE / 4
     cld
     rep movsd
     mov eax, FORK_COPY_DST_ALIAS
-    call vmm_unmap_page
-    mov eax, FORK_COPY_SRC_ALIAS
     call vmm_unmap_page
     popfd
     mov ecx, [process_fork_copy_phys]
@@ -20117,10 +20109,6 @@ process_clone_present_user_range:
     mov eax, [process_fork_copy_phys]
     call pmm_free_page
     jmp .fail
-
-.copy_dst_alias_fail:
-    mov eax, FORK_COPY_SRC_ALIAS
-    call vmm_unmap_page
 
 .copy_alias_fail:
     popfd
