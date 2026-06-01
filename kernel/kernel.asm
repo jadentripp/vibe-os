@@ -35127,6 +35127,10 @@ syscall_handler:
     jmp .bad_syscall_return
 
 .context_handoff_return:
+    mov ebx, [esp + SYSCALL_FRAME_EIP]
+    mov [process_exit_resume_parent_eip], ebx
+    mov ebx, [esp + SYSCALL_FRAME_ESP]
+    mov [process_exit_resume_parent_esp], ebx
     call syscall_sanitize_return_frame
     call syscall_restore_user_segments
     pop ebp
@@ -36130,7 +36134,10 @@ syscall_handler:
     je .user_exit_to_kernel
     cmp esi, process_user_probe
     je .user_exit_to_kernel
-    cmp dword [esi + PROC_PARENT_PID], 0xffffffff
+    mov eax, [esi + PROC_PARENT_PID]
+    cmp eax, 0xffffffff
+    je .user_exit_to_kernel
+    cmp eax, 0
     je .user_exit_to_kernel
     mov [process_exit_frame_ptr], esp
     call process_mark_current_zombie_exited
