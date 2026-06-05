@@ -988,6 +988,7 @@ MMAP_MAP_STACK equ 0x00020000
 MMAP_SUPPORTED_FLAGS equ MMAP_MAP_SHARED | MMAP_MAP_PRIVATE | MMAP_MAP_FIXED | MMAP_MAP_ANONYMOUS | MMAP_MAP_DENYWRITE | MMAP_MAP_EXECUTABLE | MMAP_MAP_NORESERVE | MMAP_MAP_POPULATE | MMAP_MAP_STACK
 LINUX_MPROTECT_RECORD_COUNT equ 16
 LINUX_MMAP_LAZY_FILE_RECORD_COUNT equ 256
+LINUX_VM_INHERIT_RECORD_COUNT equ PROCESS_SLOT_COUNT
 IOCTL_DISPLAY_FD equ 1
 IOCTL_AUDIO_FD equ 0x00004155
 VIBE_IOCTL_FBINFO equ 0x00005601
@@ -19346,6 +19347,8 @@ process_teardown_user_vm:
     jmp .region_next
 
 .clear_lazy_file_records:
+    mov ebx, [esi + PROC_PAGE_DIR]
+    call linux_vm_inherit_clear_for_owner
     call linux_mmap_lazy_file_records_clear_for_process
 
 .reset_metadata:
@@ -19355,6 +19358,8 @@ process_teardown_user_vm:
     jmp .done
 
 .reset_shared_metadata:
+    mov ebx, [esi + PROC_PAGE_DIR]
+    call linux_vm_inherit_clear_for_owner
     call process_restore_own_page_dir
     mov eax, [esi + PROC_HEAP_START]
     mov [esi + PROC_BRK], eax
@@ -20274,6 +20279,7 @@ process_fork_current:
     call process_fork_copy_metadata
     call process_clone_user_vm
     jc .rollback_enomem
+    call linux_vm_inherit_set_fork_child
     mov esi, [process_fork_parent_proc]
     mov eax, [esi + PROC_PID]
     mov edi, [process_fork_child_proc]
@@ -22347,6 +22353,11 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_fork
 
+    mov edi, exec_path_linux_time
+    call kernel_streq
+    cmp al, 1
+    je .linux_time
+
     mov edi, exec_path_linux_rseq
     call kernel_streq
     cmp al, 1
@@ -22607,6 +22618,13 @@ process_exec_resolve_app_path:
     jc .fail
     mov ebx, esi
     mov esi, linux_fork_elf_name_83
+    jmp .linux_bin_app
+
+.linux_time:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_time_elf_name_83
     jmp .linux_bin_app
 
 .linux_rseq:
@@ -25052,6 +25070,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_RSEQ_SMOKE
     mov esi, exec_path_linux_rseq
 %endif
+%ifdef LINUX_M1_TIME_SMOKE
+    mov esi, exec_path_linux_time
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -25187,6 +25208,9 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_RSEQ_SMOKE
     mov esi, exec_path_linux_rseq
+%endif
+%ifdef LINUX_M1_TIME_SMOKE
+    mov esi, exec_path_linux_time
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -26387,6 +26411,7 @@ LINUX_SYS_OPEN equ 5
 LINUX_SYS_CLOSE equ 6
 LINUX_SYS_WAITPID equ 7
 LINUX_SYS_EXECVE equ 11
+LINUX_SYS_TIME equ 13
 LINUX_SYS_LSEEK equ 19
 LINUX_SYS_GETPID equ 20
 LINUX_SYS_GETUID equ 24
@@ -26406,6 +26431,7 @@ LINUX_SYS_GETPPID equ 64
 LINUX_SYS_GETPGID equ 132
 LINUX_SYS_GETSID equ 147
 LINUX_SYS_SETSID equ 66
+LINUX_SYS_GETTIMEOFDAY equ 78
 LINUX_SYS_READLINK equ 85
 LINUX_SYS_MUNMAP equ 91
 LINUX_SYS_SOCKETCALL equ 102
@@ -26543,6 +26569,7 @@ LINUX_POLLFD_BYTES equ 8
 LINUX_POLL_MAX_NFDS equ 1024
 LINUX_SELECT_MAX_NFDS equ 1024
 LINUX_TIMEVAL_BYTES equ 8
+LINUX_TIMEZONE_BYTES equ 8
 LINUX_TIMESPEC_BYTES equ 8
 LINUX_ITIMERSPEC_INTERVAL_SEC equ 0
 LINUX_ITIMERSPEC_INTERVAL_NSEC equ 4
@@ -28034,6 +28061,109 @@ linux_mmap_lazy_file_records_clear_for_exec_target:
     popad
     ret
 
+linux_vm_inherit_clear_for_owner:
+    pushad
+    test ebx, ebx
+    jz .done
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_VM_INHERIT_RECORD_COUNT
+    jae .done
+    cmp [linux_vm_inherit_child_owner + esi * 4], ebx
+    je .clear_slot
+    cmp [linux_vm_inherit_parent_owner + esi * 4], ebx
+    jne .advance
+
+.clear_slot:
+    mov dword [linux_vm_inherit_child_owner + esi * 4], 0
+    mov dword [linux_vm_inherit_parent_owner + esi * 4], 0
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.done:
+    popad
+    ret
+
+linux_vm_inherit_set_fork_child:
+    pushad
+    mov esi, [process_fork_parent_proc]
+    mov edi, [process_fork_child_proc]
+    cmp esi, 0
+    je .done
+    cmp edi, 0
+    je .done
+    mov ebp, [esi + PROC_PAGE_DIR]
+    mov ebx, [edi + PROC_PAGE_DIR]
+    test ebp, ebp
+    jz .done
+    test ebx, ebx
+    jz .done
+    cmp ebx, ebp
+    je .done
+    xor esi, esi
+    mov edx, 0xffffffff
+
+.slot_next:
+    cmp esi, LINUX_VM_INHERIT_RECORD_COUNT
+    jae .choose_free
+    cmp [linux_vm_inherit_child_owner + esi * 4], ebx
+    je .slot_ready
+    cmp dword [linux_vm_inherit_child_owner + esi * 4], 0
+    jne .advance
+    cmp edx, 0xffffffff
+    jne .advance
+    mov edx, esi
+
+.advance:
+    inc esi
+    jmp .slot_next
+
+.choose_free:
+    cmp edx, 0xffffffff
+    je .done
+    mov esi, edx
+
+.slot_ready:
+    mov [linux_vm_inherit_child_owner + esi * 4], ebx
+    mov [linux_vm_inherit_parent_owner + esi * 4], ebp
+
+.done:
+    popad
+    ret
+
+linux_vm_inherit_lookup_parent_owner:
+    push eax
+    push ecx
+    push esi
+    xor esi, esi
+
+.slot_next:
+    cmp esi, LINUX_VM_INHERIT_RECORD_COUNT
+    jae .not_found
+    cmp [linux_vm_inherit_child_owner + esi * 4], ebx
+    je .found
+    inc esi
+    jmp .slot_next
+
+.found:
+    mov ebx, [linux_vm_inherit_parent_owner + esi * 4]
+    test ebx, ebx
+    jz .not_found
+    clc
+    jmp .done
+
+.not_found:
+    stc
+
+.done:
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
 linux_mmap_lazy_file_register_current:
     pushad
     mov dword [linux_mmap_lazy_reserved_slot], 0xffffffff
@@ -28278,6 +28408,7 @@ linux_mmap_lazy_file_page_fault:
     mov ebx, [esi + PROC_PAGE_DIR]
     test ebx, ebx
     jz .reject
+    mov [linux_mmap_lazy_lookup_owner], ebx
     mov eax, [fault_cr2]
     and eax, 0xfffff000
     mov [linux_mmap_lazy_last_page], eax
@@ -28287,7 +28418,14 @@ linux_mmap_lazy_file_page_fault:
     mov dword [linux_mmap_lazy_copy_done], 0
     mov ecx, PTE_USER_READ_FLAGS
     call linux_mprotect_lookup_pte_flags_for_owner
+    jnc .flags_found
+    mov ebx, [linux_mmap_lazy_lookup_owner]
+    call linux_vm_inherit_lookup_parent_owner
     jc .flags_ready
+    call linux_mprotect_lookup_pte_flags_for_owner
+    jc .flags_ready
+
+.flags_found:
     mov ecx, [linux_mprotect_lookup_flags]
 
 .flags_ready:
@@ -28300,11 +28438,13 @@ linux_mmap_lazy_file_page_fault:
     jz .reject
 
 .find_record:
+    mov dword [linux_mmap_lazy_scan_inherited], 0
+    mov ebx, [linux_mmap_lazy_lookup_owner]
     xor esi, esi
 
 .scan_next:
     cmp esi, LINUX_MMAP_LAZY_FILE_RECORD_COUNT
-    jae .not_found
+    jae .scan_maybe_inherited
     cmp [linux_mmap_lazy_file_owner + esi * 4], ebx
     jne .scan_advance
     mov eax, [linux_mmap_lazy_last_page]
@@ -28315,6 +28455,16 @@ linux_mmap_lazy_file_page_fault:
 
 .scan_advance:
     inc esi
+    jmp .scan_next
+
+.scan_maybe_inherited:
+    cmp dword [linux_mmap_lazy_scan_inherited], 0
+    jne .not_found
+    mov ebx, [linux_mmap_lazy_lookup_owner]
+    call linux_vm_inherit_lookup_parent_owner
+    jc .not_found
+    mov dword [linux_mmap_lazy_scan_inherited], 1
+    xor esi, esi
     jmp .scan_next
 
 .found:
@@ -28484,6 +28634,68 @@ linux_sys_getrlimit:
     stosd
     stosd
     xor eax, eax
+    ret
+
+linux_sys_time:
+    mov ecx, ebx
+    mov eax, [clock_milliseconds]
+    xor edx, edx
+    mov ebx, 1000
+    div ebx
+    cmp ecx, 0
+    je .done
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], eax
+    mov eax, ecx
+    mov ebx, 4
+    call user_range_validate
+    jc .efault
+    mov edx, [syscall_len_arg]
+    mov [eax], edx
+    mov eax, edx
+
+.done:
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+linux_sys_gettimeofday:
+    mov [syscall_len_arg], ecx
+    cmp ebx, 0
+    je .timezone
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, LINUX_TIMEVAL_BYTES
+    call user_range_validate
+    jc .efault
+    mov edi, [syscall_ptr_arg]
+    mov eax, [clock_milliseconds]
+    xor edx, edx
+    mov ebx, 1000
+    div ebx
+    mov [edi], eax
+    imul edx, edx, 1000
+    mov [edi + 4], edx
+
+.timezone:
+    mov ecx, [syscall_len_arg]
+    cmp ecx, 0
+    je .ok
+    mov eax, ecx
+    mov ebx, LINUX_TIMEZONE_BYTES
+    call user_range_validate
+    jc .efault
+    mov dword [eax], 0
+    mov dword [eax + 4], 0
+
+.ok:
+    xor eax, eax
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
     ret
 
 linux_sys_clock_gettime:
@@ -36070,6 +36282,8 @@ syscall_handler:
     je .exit
     cmp eax, LINUX_SYS_EXECVE
     je .exec
+    cmp eax, LINUX_SYS_TIME
+    je .linux_time
     cmp eax, LINUX_SYS_LSEEK
     je .lseek
     cmp eax, LINUX_SYS_GETPID
@@ -36104,6 +36318,8 @@ syscall_handler:
     je .linux_getppid
     cmp eax, LINUX_SYS_SETSID
     je .linux_setsid
+    cmp eax, LINUX_SYS_GETTIMEOFDAY
+    je .linux_gettimeofday
     cmp eax, LINUX_SYS_READLINK
     je .linux_readlink
     cmp eax, LINUX_SYS_MUNMAP
@@ -36499,6 +36715,14 @@ syscall_handler:
 
 .linux_prlimit64:
     call linux_sys_prlimit64
+    jmp .return
+
+.linux_time:
+    call linux_sys_time
+    jmp .return
+
+.linux_gettimeofday:
+    call linux_sys_gettimeofday
     jmp .return
 
 .linux_brk:
@@ -47909,6 +48133,7 @@ linux_mmap_large_elf_name_83 db "MMAPLG  ELF"
 linux_mmap_many_elf_name_83 db "MMAPMNY ELF"
 linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
+linux_time_elf_name_83 db "TIME    ELF"
 linux_rseq_elf_name_83 db "RSEQ    ELF"
 %ifdef LINUX_M1_CLONE3_SMOKE
 linux_clone3_elf_name_83 db "CLONE3  ELF"
@@ -47962,6 +48187,7 @@ exec_path_linux_mmap_large db "/BIN/MMAPLG.ELF", 0
 exec_path_linux_mmap_many db "/BIN/MMAPMNY.ELF", 0
 exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
+exec_path_linux_time db "/BIN/TIME.ELF", 0
 exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
 %ifdef LINUX_M1_CLONE3_SMOKE
 exec_path_linux_clone3 db "/BIN/CLONE3.ELF", 0
@@ -49545,6 +49771,8 @@ linux_mmap_lazy_split_tail_end resd 1
 linux_mmap_lazy_split_tail_cluster resd 1
 linux_mmap_lazy_split_tail_size resd 1
 linux_mmap_lazy_split_tail_offset resd 1
+linux_vm_inherit_child_owner resd LINUX_VM_INHERIT_RECORD_COUNT
+linux_vm_inherit_parent_owner resd LINUX_VM_INHERIT_RECORD_COUNT
 
 section .text
 linux_mmap_lazy_last_slot dd 0xffffffff
@@ -49560,6 +49788,8 @@ linux_mmap_lazy_failures dd 0
 linux_mmap_lazy_last_status dd 0
 linux_mmap_lazy_last_error dd 0
 linux_mmap_lazy_copy_done dd 0
+linux_mmap_lazy_lookup_owner dd 0
+linux_mmap_lazy_scan_inherited dd 0
 linux_mmap_lazy_sector_offset dd 0
 process_mmap_attempts dd 0
 process_mmap_successes dd 0
