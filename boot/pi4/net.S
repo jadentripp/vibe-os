@@ -14,28 +14,91 @@
 .equ PI4_NET_GENET_SPAN,                0x00010000
 .equ PI4_NET_GENET_PHY_ADDR,            1
 .equ PI4_NET_GENET_MTU_FRAME,           1536
-.equ PI4_NET_STATIC_IP0,                198
-.equ PI4_NET_STATIC_IP1,                51
-.equ PI4_NET_STATIC_IP2,                100
-.equ PI4_NET_STATIC_IP3,                231
-.equ PI4_NET_MAC0,                      0x02
-.equ PI4_NET_MAC1,                      0x00
-.equ PI4_NET_MAC2,                      0x00
-.equ PI4_NET_MAC3,                      0x00
-.equ PI4_NET_MAC4,                      0x00
-.equ PI4_NET_MAC5,                      0x01
-.equ PI4_NET_MAC0_BE32,                 0x02000000
-.equ PI4_NET_MAC1_BE16,                 0x0001
-.equ PI4_NET_HOST_IP0,                  198
-.equ PI4_NET_HOST_IP1,                  51
-.equ PI4_NET_HOST_IP2,                  100
-.equ PI4_NET_HOST_IP3,                  23
-.equ PI4_NET_HOST_MAC0,                 0x02
-.equ PI4_NET_HOST_MAC1,                 0x00
-.equ PI4_NET_HOST_MAC2,                 0x00
-.equ PI4_NET_HOST_MAC3,                 0x00
-.equ PI4_NET_HOST_MAC4,                 0x00
-.equ PI4_NET_HOST_MAC5,                 0x02
+// Each octet is guarded independently so an override of a single octet
+// (e.g. -DVIBE_PI4_NET_STATIC_IP3=123) does not silently reset the others
+// back to the documentation defaults.
+#ifndef VIBE_PI4_NET_STATIC_IP0
+#define VIBE_PI4_NET_STATIC_IP0 198
+#endif
+#ifndef VIBE_PI4_NET_STATIC_IP1
+#define VIBE_PI4_NET_STATIC_IP1 51
+#endif
+#ifndef VIBE_PI4_NET_STATIC_IP2
+#define VIBE_PI4_NET_STATIC_IP2 100
+#endif
+#ifndef VIBE_PI4_NET_STATIC_IP3
+#define VIBE_PI4_NET_STATIC_IP3 231
+#endif
+#ifndef VIBE_PI4_NET_MAC0
+#define VIBE_PI4_NET_MAC0 0x02
+#endif
+#ifndef VIBE_PI4_NET_MAC1
+#define VIBE_PI4_NET_MAC1 0x00
+#endif
+#ifndef VIBE_PI4_NET_MAC2
+#define VIBE_PI4_NET_MAC2 0x00
+#endif
+#ifndef VIBE_PI4_NET_MAC3
+#define VIBE_PI4_NET_MAC3 0x00
+#endif
+#ifndef VIBE_PI4_NET_MAC4
+#define VIBE_PI4_NET_MAC4 0x00
+#endif
+#ifndef VIBE_PI4_NET_MAC5
+#define VIBE_PI4_NET_MAC5 0x01
+#endif
+#ifndef VIBE_PI4_NET_HOST_IP0
+#define VIBE_PI4_NET_HOST_IP0 198
+#endif
+#ifndef VIBE_PI4_NET_HOST_IP1
+#define VIBE_PI4_NET_HOST_IP1 51
+#endif
+#ifndef VIBE_PI4_NET_HOST_IP2
+#define VIBE_PI4_NET_HOST_IP2 100
+#endif
+#ifndef VIBE_PI4_NET_HOST_IP3
+#define VIBE_PI4_NET_HOST_IP3 23
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC0
+#define VIBE_PI4_NET_HOST_MAC0 0x02
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC1
+#define VIBE_PI4_NET_HOST_MAC1 0x00
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC2
+#define VIBE_PI4_NET_HOST_MAC2 0x00
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC3
+#define VIBE_PI4_NET_HOST_MAC3 0x00
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC4
+#define VIBE_PI4_NET_HOST_MAC4 0x00
+#endif
+#ifndef VIBE_PI4_NET_HOST_MAC5
+#define VIBE_PI4_NET_HOST_MAC5 0x02
+#endif
+.equ PI4_NET_STATIC_IP0,                VIBE_PI4_NET_STATIC_IP0
+.equ PI4_NET_STATIC_IP1,                VIBE_PI4_NET_STATIC_IP1
+.equ PI4_NET_STATIC_IP2,                VIBE_PI4_NET_STATIC_IP2
+.equ PI4_NET_STATIC_IP3,                VIBE_PI4_NET_STATIC_IP3
+.equ PI4_NET_MAC0,                      VIBE_PI4_NET_MAC0
+.equ PI4_NET_MAC1,                      VIBE_PI4_NET_MAC1
+.equ PI4_NET_MAC2,                      VIBE_PI4_NET_MAC2
+.equ PI4_NET_MAC3,                      VIBE_PI4_NET_MAC3
+.equ PI4_NET_MAC4,                      VIBE_PI4_NET_MAC4
+.equ PI4_NET_MAC5,                      VIBE_PI4_NET_MAC5
+.equ PI4_NET_MAC0_BE32,                 (VIBE_PI4_NET_MAC0 << 24) | (VIBE_PI4_NET_MAC1 << 16) | (VIBE_PI4_NET_MAC2 << 8) | VIBE_PI4_NET_MAC3
+.equ PI4_NET_MAC1_BE16,                 (VIBE_PI4_NET_MAC4 << 8) | VIBE_PI4_NET_MAC5
+.equ PI4_NET_HOST_IP0,                  VIBE_PI4_NET_HOST_IP0
+.equ PI4_NET_HOST_IP1,                  VIBE_PI4_NET_HOST_IP1
+.equ PI4_NET_HOST_IP2,                  VIBE_PI4_NET_HOST_IP2
+.equ PI4_NET_HOST_IP3,                  VIBE_PI4_NET_HOST_IP3
+.equ PI4_NET_HOST_MAC0,                 VIBE_PI4_NET_HOST_MAC0
+.equ PI4_NET_HOST_MAC1,                 VIBE_PI4_NET_HOST_MAC1
+.equ PI4_NET_HOST_MAC2,                 VIBE_PI4_NET_HOST_MAC2
+.equ PI4_NET_HOST_MAC3,                 VIBE_PI4_NET_HOST_MAC3
+.equ PI4_NET_HOST_MAC4,                 VIBE_PI4_NET_HOST_MAC4
+.equ PI4_NET_HOST_MAC5,                 VIBE_PI4_NET_HOST_MAC5
 .equ PI4_NET_LINK_WAIT_SECONDS,         2
 .equ PI4_NET_POLL_SECONDS,              10
 .equ PI4_NET_RX_RING_SIZE,              64
@@ -183,6 +246,10 @@
 .equ PI4_NET_TCP_SERVER_SEQ,            0x56494245
 .equ PI4_NET_SSH_BANNER_LEN,            21
 .equ PI4_NET_SSH_KEXINIT_PACKET_LEN,    160
+// Number of distinct client connections (by source port) for which the SSH
+// banner/KEXINIT has been sent is remembered so the greeting stays one-shot
+// per connection. Must stay a power of two for the round-robin mask below.
+.equ PI4_NET_TCP_BANNER_TABLE_SIZE,     8
 .equ PI4_NET_SSH_MSG_KEXINIT,           20
 .equ PI4_NET_UDP_PROBE_PORT,            23230
 .equ PI4_NET_UDP_PROBE_LEN,             22
@@ -224,6 +291,7 @@
 .equ PI4_NET_PROBE_LINK_UP,             4
 .equ PI4_NET_PROBE_LINK_DOWN,           5
 .equ PI4_NET_PROBE_BAD,                 0xff
+.equ PI4_NET_RESULT_DTB_SCAN_MISS,      0xd7b00001
 
 .section .text.pi4_net, "ax", %progbits
 .balign 16
@@ -1343,6 +1411,10 @@ pi4_net_handle_tcp_frame:
     lsr w0, w0, #4
     cmp w0, #5
     b.lo .Lpi4_net_tcp_done
+    lsl w0, w0, #2
+    add w0, w0, #20
+    cmp w20, w0
+    b.lo .Lpi4_net_tcp_done
 
     add x0, x19, #34
     bl pi4_net_load_be16
@@ -1382,13 +1454,23 @@ pi4_net_handle_tcp_frame:
     b.eq .Lpi4_net_tcp_done
     mov x0, x19
     bl pi4_net_record_ssh_client_payload
-    adr x0, pi4_net_status_tcp_banners
+    adr x0, pi4_net_status_tcp_last_ack
     ldr x1, [x0]
-    cbnz x1, .Lpi4_net_tcp_ack_client_payload
+    ldr x2, =(PI4_NET_TCP_SERVER_SEQ + 1)
+    cmp x1, x2
+    b.ne .Lpi4_net_tcp_ack_client_payload
+    adr x0, pi4_net_status_tcp_src_port
+    ldr x0, [x0]
+    bl pi4_net_tcp_banner_already_sent
+    cbnz x0, .Lpi4_net_tcp_ack_client_payload
     mov x0, x19
     bl pi4_net_send_tcp_banner
+    cbz x0, .Lpi4_net_tcp_done
     mov x0, x19
     bl pi4_net_send_tcp_kexinit
+    adr x0, pi4_net_status_tcp_src_port
+    ldr x0, [x0]
+    bl pi4_net_tcp_banner_mark_sent
     b .Lpi4_net_tcp_done
 
 .Lpi4_net_tcp_ack_client_payload:
@@ -1493,8 +1575,12 @@ pi4_net_send_tcp_banner:
     ldr x1, [x0]
     add x1, x1, #1
     str x1, [x0]
+    mov x0, #1
+    b .Lpi4_net_tcp_banner_ret
 
 .Lpi4_net_tcp_banner_done:
+    mov x0, #0
+.Lpi4_net_tcp_banner_ret:
     ldr x25, [sp, #64]
     ldp x23, x24, [sp, #48]
     ldp x21, x22, [sp, #32]
@@ -1610,6 +1696,54 @@ pi4_net_send_tcp_ack_only:
     ldp x29, x30, [sp], #80
     ret
 .size pi4_net_send_tcp_ack_only, . - pi4_net_send_tcp_ack_only
+
+// x0 = client source port. Returns x0 = 1 if the SSH greeting has already been
+// sent for that connection, else 0. Port 0 is never treated as sent. Leaf.
+.type pi4_net_tcp_banner_already_sent, %function
+pi4_net_tcp_banner_already_sent:
+    cbz x0, .Lpi4_net_banner_seen_no
+    mov x1, x0
+    ldr x2, =pi4_net_tcp_banner_ports
+    mov x3, #PI4_NET_TCP_BANNER_TABLE_SIZE
+.Lpi4_net_banner_seen_loop:
+    ldr x4, [x2], #8
+    cmp x4, x1
+    b.eq .Lpi4_net_banner_seen_yes
+    subs x3, x3, #1
+    b.ne .Lpi4_net_banner_seen_loop
+.Lpi4_net_banner_seen_no:
+    mov x0, #0
+    ret
+.Lpi4_net_banner_seen_yes:
+    mov x0, #1
+    ret
+.size pi4_net_tcp_banner_already_sent, . - pi4_net_tcp_banner_already_sent
+
+// x0 = client source port. Records that the greeting was sent for this
+// connection, replacing the oldest entry round-robin once the table is full.
+// No-op for port 0 or a port already tracked. Leaf.
+.type pi4_net_tcp_banner_mark_sent, %function
+pi4_net_tcp_banner_mark_sent:
+    cbz x0, .Lpi4_net_banner_mark_ret
+    mov x1, x0
+    ldr x2, =pi4_net_tcp_banner_ports
+    mov x3, #PI4_NET_TCP_BANNER_TABLE_SIZE
+.Lpi4_net_banner_mark_scan:
+    ldr x4, [x2], #8
+    cmp x4, x1
+    b.eq .Lpi4_net_banner_mark_ret
+    subs x3, x3, #1
+    b.ne .Lpi4_net_banner_mark_scan
+    ldr x2, =pi4_net_tcp_banner_next
+    ldr x3, [x2]
+    and x3, x3, #(PI4_NET_TCP_BANNER_TABLE_SIZE - 1)
+    ldr x4, =pi4_net_tcp_banner_ports
+    str x1, [x4, x3, lsl #3]
+    add x3, x3, #1
+    str x3, [x2]
+.Lpi4_net_banner_mark_ret:
+    ret
+.size pi4_net_tcp_banner_mark_sent, . - pi4_net_tcp_banner_mark_sent
 
 .type pi4_net_record_ssh_client_payload, %function
 pi4_net_record_ssh_client_payload:
@@ -2227,22 +2361,22 @@ pi4_net_scan_genet_dtb:
     cmp w0, w1
     b.ne .Lpi4_net_scan_not_found
 
-    adr x0, pi4_status_pi4dtb_root
-    ldr x1, [x0]
-    cbz x1, .Lpi4_net_scan_not_found
+    adr x0, pi4_status_dtb
+    ldr x8, [x0]
+    cbz x8, .Lpi4_net_scan_not_found
     adr x0, pi4_status_pi4dtb_struct_off
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_struct_size
     ldr x10, [x0]
-    add x11, x1, x9
+    add x11, x8, x9
     add x2, x11, x10
     adr x0, pi4_status_pi4dtb_strings_off
     ldr x9, [x0]
     adr x0, pi4_status_pi4dtb_strings_size
     ldr x10, [x0]
-    add x3, x1, x9
+    add x3, x8, x9
     add x4, x3, x10
-    add x5, x1, #8
+    add x5, x11, #8
     mov x6, xzr
     mov x7, xzr
     mov x19, #1
@@ -2365,6 +2499,9 @@ pi4_net_scan_genet_dtb:
     b .Lpi4_net_scan_done
 
 .Lpi4_net_scan_not_found:
+    adr x1, pi4_net_status_result
+    ldr x0, =PI4_NET_RESULT_DTB_SCAN_MISS
+    str x0, [x1]
     mov x0, xzr
     b .Lpi4_net_scan_done
 
@@ -2645,3 +2782,8 @@ pi4_net_tx_buffers:
 .balign 64
 pi4_net_status_sector:
     .skip PI4_NET_STATUS_SECTOR_BYTES
+.balign 8
+pi4_net_tcp_banner_ports:
+    .skip 8 * PI4_NET_TCP_BANNER_TABLE_SIZE
+pi4_net_tcp_banner_next:
+    .skip 8

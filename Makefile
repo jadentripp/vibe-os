@@ -165,7 +165,10 @@ PI4_LAUNCHER_ELF := $(PI4_BUILD_DIR)/INIT.ELF
 PI4_DOOM_ELF := $(PI4_BUILD_DIR)/DOOM.APP.ELF
 PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/QUAKE.APP.ELF
 PI4_USER_ELF_MAX_BYTES := 524288
+PI4_NET_CPPFLAGS ?=
+PI4_NET_CPPFLAGS_STAMP := $(PI4_BUILD_DIR)/.pi4-net-cppflags.stamp
 PI4_AARCH64_KERNEL_FLAGS := --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra
+PI4_AARCH64_NET_FLAGS := $(PI4_AARCH64_KERNEL_FLAGS) $(PI4_NET_CPPFLAGS)
 PI4_AARCH64_USER_FLAGS := --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -I. -Iuser
 PI4_APP_INDEX_TXT := user/pi4_apps_index.txt
 PI4_APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
@@ -424,14 +427,22 @@ $(PI4_KERNEL_INPUT_OBJ): boot/pi4/input.S Makefile | $(PI4_BUILD_DIR)
 $(PI4_KERNEL_STORAGE_OBJ): boot/pi4/storage.S Makefile | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) $(PI4_AARCH64_KERNEL_FLAGS) -c $< -o $@
 
-$(PI4_KERNEL_NET_OBJ): boot/pi4/net.S Makefile | $(PI4_BUILD_DIR)
-	$(AARCH64_CC) $(PI4_AARCH64_KERNEL_FLAGS) -c $< -o $@
+# The configurable network identity (IP/MAC) is baked in via PI4_NET_CPPFLAGS,
+# whose value is not a file prerequisite. This stamp captures the current value
+# and only changes when it does, forcing the net objects below to rebuild so a
+# tryboot/image rebuild never silently keeps a stale baked-in IP/MAC.
+$(PI4_NET_CPPFLAGS_STAMP): FORCE | $(PI4_BUILD_DIR)
+	@printf '%s\n' '$(PI4_NET_CPPFLAGS)' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
+$(PI4_KERNEL_NET_OBJ): boot/pi4/net.S Makefile $(PI4_NET_CPPFLAGS_STAMP) | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_NET_FLAGS) -c $< -o $@
 
 $(PI4_KERNEL_AGGREGATE_SRC): $(PI4_BOOT_ASM_SRCS) $(PI4_KERNEL_SOURCE_TOOL) Makefile | $(PI4_BUILD_DIR)
 	@$(PI4_KERNEL_SOURCE_TOOL) $@ $(PI4_BOOT_ASM_SRCS)
 
-$(PI4_KERNEL_OBJ): $(PI4_KERNEL_AGGREGATE_SRC) Makefile | $(PI4_BUILD_DIR)
-	$(AARCH64_CC) $(PI4_AARCH64_KERNEL_FLAGS) -c $(PI4_KERNEL_AGGREGATE_SRC) -o $@
+$(PI4_KERNEL_OBJ): $(PI4_KERNEL_AGGREGATE_SRC) Makefile $(PI4_NET_CPPFLAGS_STAMP) | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_NET_FLAGS) -c $(PI4_KERNEL_AGGREGATE_SRC) -o $@
 
 $(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
 	$(LINK_AARCH64_FLAT) -o $@ --base 0x80000 --map $(PI4_KERNEL8_MAP) $(PI4_KERNEL_OBJ)
