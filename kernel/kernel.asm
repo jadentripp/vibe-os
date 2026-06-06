@@ -843,6 +843,11 @@ LINUX_SYNTHETIC_FILE_FD1 equ 6
 LINUX_SYNTHETIC_FILE_FD2 equ 7
 LINUX_SYNTHETIC_FILE_OS_RELEASE equ 8
 LINUX_SYNTHETIC_FILE_COUNT equ 8
+LINUX_PROC_PATH_TAIL_DIR equ 0
+LINUX_PROC_PATH_TAIL_CMDLINE equ 1
+LINUX_PROC_PATH_TAIL_STATUS equ 2
+LINUX_PROC_PATH_TAIL_STAT equ 3
+LINUX_PROC_PATH_TAIL_MAPS equ 4
 FD_INHERIT_EXEC equ 0x1
 FD_CLOEXEC equ 0x1
 F_DUPFD equ 0
@@ -1234,6 +1239,7 @@ ERRNO_EMFILE equ 24
 ERRNO_ENOTTY equ 25
 ERRNO_ENOSPC equ 28
 ERRNO_ESPIPE equ 29
+ERRNO_ERANGE equ 34
 ERRNO_ENOSYS equ 38
 ERRNO_ENOTSOCK equ 88
 ERRNO_ENOPROTOOPT equ 92
@@ -15002,7 +15008,7 @@ fat_parse_user_root83:
     push edi
 
     mov eax, [syscall_ptr_arg]
-    mov ebx, 16
+    mov ebx, 1
     call user_range_validate
     jc .fail
     mov edi, fat_open_name_buffer
@@ -15018,6 +15024,10 @@ fat_parse_user_root83:
     mov ecx, 12
 
 .skip_prefix:
+    mov eax, esi
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
     mov al, [esi]
     cmp al, '/'
     je .skip_one_prefix_char
@@ -15025,6 +15035,10 @@ fat_parse_user_root83:
     je .skip_one_prefix_char
     cmp al, '.'
     jne .char_loop
+    mov eax, esi
+    mov ebx, 2
+    call user_range_validate
+    jc .fail
     mov al, [esi + 1]
     cmp al, '/'
     je .skip_dot_prefix
@@ -15045,6 +15059,10 @@ fat_parse_user_root83:
     jmp .skip_prefix
 
 .char_loop:
+    mov eax, esi
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
     lodsb
     cmp al, 0
     je .finish
@@ -15139,7 +15157,7 @@ fat_parse_user_subdir_file83:
     push edi
 
     mov eax, [syscall_ptr_arg]
-    mov ebx, 32
+    mov ebx, 1
     call user_range_validate
     jc .fail
     mov edi, fat_subdir_name_buffer
@@ -15160,6 +15178,10 @@ fat_parse_user_subdir_file83:
     mov ecx, 32
 
 .skip_prefix:
+    mov eax, esi
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
     mov al, [esi]
     cmp al, '/'
     je .skip_one_prefix_char
@@ -15167,6 +15189,10 @@ fat_parse_user_subdir_file83:
     je .skip_one_prefix_char
     cmp al, '.'
     jne .char_loop
+    mov eax, esi
+    mov ebx, 2
+    call user_range_validate
+    jc .fail
     mov al, [esi + 1]
     cmp al, '/'
     je .skip_dot_prefix
@@ -15189,6 +15215,10 @@ fat_parse_user_subdir_file83:
 .char_loop:
     cmp ecx, 0
     je .fail
+    mov eax, esi
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
     lodsb
     dec ecx
     cmp al, 0
@@ -25129,6 +25159,24 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
     mov esi, exec_path_linux_proc_self_exe
 %endif
+%ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_CP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_GREP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_SLEEP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
 %ifdef LINUX_M1_TMPDIR_SMOKE
     mov esi, exec_path_linux_tmpdir
 %endif
@@ -25286,6 +25334,24 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
     mov esi, exec_path_linux_proc_self_exe
 %endif
+%ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_CP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_GREP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_SLEEP_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
 %ifdef LINUX_M1_TMPDIR_SMOKE
     mov esi, exec_path_linux_tmpdir
 %endif
@@ -25352,6 +25418,24 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_EXEC_LIMITS_SMOKE
     call linux_m1_smoke_stage_exec_limits
 %else
+%ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+    call linux_m1_smoke_stage_busybox_ls
+%else
+%ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
+    call linux_m1_smoke_stage_busybox_cat
+%else
+%ifdef LINUX_M1_BUSYBOX_CP_SMOKE
+    call linux_m1_smoke_stage_busybox_cp
+%else
+%ifdef LINUX_M1_BUSYBOX_GREP_SMOKE
+    call linux_m1_smoke_stage_busybox_grep
+%else
+%ifdef LINUX_M1_BUSYBOX_SLEEP_SMOKE
+    call linux_m1_smoke_stage_busybox_sleep
+%else
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+    call linux_m1_smoke_stage_busybox_ps
+%else
 %ifdef LINUX_M1_BUSYBOX_SH_SMOKE
     call linux_m1_smoke_stage_busybox_sh
 %else
@@ -25365,6 +25449,12 @@ linux_m1_smoke_launch:
     call linux_m1_smoke_stage_ld_debug
 %else
     call sys_exec_stage_kernel_arg
+%endif
+%endif
+%endif
+%endif
+%endif
+%endif
 %endif
 %endif
 %endif
@@ -25606,6 +25696,105 @@ linux_m1_smoke_stage_busybox_sh:
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, busybox_arg_script
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+linux_m1_smoke_stage_busybox_ls:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_ls
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_bin_dir
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
+linux_m1_smoke_stage_busybox_cat:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cat
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cat_path
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_CP_SMOKE
+linux_m1_smoke_stage_busybox_cp:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cp
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cat_path
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cp_dst
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_GREP_SMOKE
+linux_m1_smoke_stage_busybox_grep:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_grep
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_grep_pattern
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_cat_path
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_SLEEP_SMOKE
+linux_m1_smoke_stage_busybox_sleep:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_sleep
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_sleep_seconds
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+linux_m1_smoke_stage_busybox_ps:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_ps
     call sys_exec_stage_kernel_arg_append
 
 .done:
@@ -26579,17 +26768,23 @@ LINUX_SYS_MPROTECT equ 125
 LINUX_SYS_LLSEEK equ 140
 LINUX_SYS_SELECT equ 142
 LINUX_SYS_WRITEV equ 146
+LINUX_SYS_NANOSLEEP equ 162
 LINUX_SYS_POLL equ 168
 LINUX_SYS_PRCTL equ 172
 LINUX_SYS_RT_SIGACTION equ 174
 LINUX_SYS_RT_SIGPROCMASK equ 175
 LINUX_SYS_SIGALTSTACK equ 186
 LINUX_SYS_PREAD64 equ 180
+LINUX_SYS_GETCWD equ 183
 LINUX_SYS_UGETRLIMIT equ 191
 LINUX_SYS_MMAP2 equ 192
 LINUX_SYS_STAT64 equ 195
 LINUX_SYS_LSTAT64 equ 196
 LINUX_SYS_FSTAT64 equ 197
+LINUX_SYS_GETUID32 equ 199
+LINUX_SYS_GETGID32 equ 200
+LINUX_SYS_GETEUID32 equ 201
+LINUX_SYS_GETEGID32 equ 202
 LINUX_SYS_GETDENTS64 equ 220
 LINUX_SYS_FCNTL64 equ 221
 LINUX_SYS_GETTID equ 224
@@ -26775,7 +26970,12 @@ LINUX_DIRENT64_ALIGN equ 8
 LINUX_DT_DIR equ 4
 LINUX_DT_REG equ 8
 LINUX_PATH_SNAPSHOT_BYTES equ 32
+LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC equ 1
+LINUX_RELATIVE_SYNTHETIC_DIR_PROC equ 2
 LINUX_SYNTHETIC_DIR_CLUSTER equ 0xffffffff
+LINUX_SYNTHETIC_PROC_DIR_CLUSTER equ 0xfffffffe
+LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER equ 0xfffffffd
+LINUX_PROC_DIRENT64_RECLEN equ 32
 LINUX_LIBRARY_ALIAS_COUNT equ 30
 LINUX_CHROMIUM_RESOURCE_ALIAS_COUNT equ 15
 LINUX_M1_STATUS_WRITE_LIMIT equ 96
@@ -26783,11 +26983,22 @@ LINUX_M1_STATUS_SYSCALL_STRIDE equ 128
 LINUX_M1_STATUS_DEMAND_STRIDE equ 128
 
 %ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifndef LINUX_PROC_SYNTHETIC_SMOKE
+%define LINUX_PROC_SYNTHETIC_SMOKE
+%endif
 %ifndef LINUX_SYNTHETIC_FILE_SMOKE
 %define LINUX_SYNTHETIC_FILE_SMOKE
 %endif
 %endif
 %ifdef LINUX_M1_LLSEEK_SMOKE
+%ifndef LINUX_SYNTHETIC_FILE_SMOKE
+%define LINUX_SYNTHETIC_FILE_SMOKE
+%endif
+%endif
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+%ifndef LINUX_PROC_SYNTHETIC_SMOKE
+%define LINUX_PROC_SYNTHETIC_SMOKE
+%endif
 %ifndef LINUX_SYNTHETIC_FILE_SMOKE
 %define LINUX_SYNTHETIC_FILE_SMOKE
 %endif
@@ -27028,6 +27239,305 @@ linux_path_is_relative_child:
     pop eax
     ret
 
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+linux_path_is_proc_root_dir:
+    push eax
+    push ebx
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_end - linux_path_proc
+    mov edi, linux_path_proc
+    call user_path_equals
+    jnc .done
+    mov eax, [syscall_ptr_arg]
+    mov ebx, linux_path_proc_slash_end - linux_path_proc_slash
+    mov edi, linux_path_proc_slash
+    call user_path_equals
+
+.done:
+    pop edi
+    pop ebx
+    pop eax
+    ret
+
+linux_proc_tail_equals:
+    push eax
+    push esi
+    push edi
+
+.next:
+    mov al, [esi]
+    cmp al, [edi]
+    jne .fail
+    test al, al
+    jz .ok
+    inc esi
+    inc edi
+    jmp .next
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop eax
+    ret
+
+linux_proc_find_pid:
+    push ebx
+    push ecx
+    push edi
+
+    cmp eax, 0xffffffff
+    je .fail
+    mov edi, process_table
+    mov ecx, PROCESS_SLOT_COUNT
+
+.loop:
+    cmp ecx, 0
+    je .fail
+    cmp dword [edi + PROC_STATE], PROC_STATE_UNUSED
+    je .next
+    cmp dword [edi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .next
+    cmp [edi + PROC_PID], eax
+    je .found
+
+.next:
+    add edi, PROCESS_RECORD_BYTES
+    dec ecx
+    jmp .loop
+
+.found:
+    mov esi, edi
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    ret
+
+linux_proc_parse_path:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov dword [linux_proc_path_pid_arg], 0
+    mov dword [linux_proc_path_process_ptr], 0
+    mov dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_DIR
+    cmp dword [linux_path_last_valid], 1
+    jne .fail
+    mov esi, linux_path_last_bytes
+    cmp byte [esi], '/'
+    jne .relative
+    cmp byte [esi + 1], 'p'
+    jne .fail
+    cmp byte [esi + 2], 'r'
+    jne .fail
+    cmp byte [esi + 3], 'o'
+    jne .fail
+    cmp byte [esi + 4], 'c'
+    jne .fail
+    cmp byte [esi + 5], '/'
+    jne .fail
+    add esi, 6
+    jmp .parse_pid
+
+.relative:
+    cmp dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+    jne .fail
+
+.parse_pid:
+    xor eax, eax
+    xor ecx, ecx
+
+.pid_loop:
+    movzx edx, byte [esi]
+    cmp edx, '0'
+    jb .pid_done
+    cmp edx, '9'
+    ja .pid_done
+    sub edx, '0'
+    cmp eax, 429496729
+    ja .fail
+    jb .pid_accumulate
+    cmp edx, 5
+    ja .fail
+
+.pid_accumulate:
+    imul eax, eax, 10
+    add eax, edx
+    inc esi
+    inc ecx
+    jmp .pid_loop
+
+.pid_done:
+    cmp ecx, 0
+    je .fail
+    mov [linux_proc_path_pid_arg], eax
+    cmp byte [esi], 0
+    je .find_pid
+    cmp byte [esi], '/'
+    jne .fail
+    inc esi
+    cmp byte [esi], 0
+    je .find_pid
+    mov edi, linux_proc_tail_cmdline
+    call linux_proc_tail_equals
+    jnc .cmdline
+    mov edi, linux_proc_tail_status
+    call linux_proc_tail_equals
+    jnc .status
+    mov edi, linux_proc_tail_stat
+    call linux_proc_tail_equals
+    jnc .stat
+    mov edi, linux_proc_tail_maps
+    call linux_proc_tail_equals
+    jnc .maps
+    jmp .fail
+
+.cmdline:
+    mov dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_CMDLINE
+    jmp .find_pid
+
+.status:
+    mov dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_STATUS
+    jmp .find_pid
+
+.stat:
+    mov dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_STAT
+    jmp .find_pid
+
+.maps:
+    mov dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_MAPS
+
+.find_pid:
+    mov eax, [linux_proc_path_pid_arg]
+    call linux_proc_find_pid
+    jc .fail
+    mov [linux_proc_path_process_ptr], esi
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+linux_path_is_proc_pid_dir:
+    call linux_proc_parse_path
+    jc .fail
+    cmp dword [linux_proc_path_tail_kind], LINUX_PROC_PATH_TAIL_DIR
+    jne .fail
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+linux_path_get_proc_pid_synthetic_file:
+    call linux_proc_parse_path
+    jc .fail
+    mov eax, [linux_proc_path_tail_kind]
+    cmp eax, LINUX_PROC_PATH_TAIL_CMDLINE
+    je .cmdline
+    cmp eax, LINUX_PROC_PATH_TAIL_STATUS
+    je .status
+    cmp eax, LINUX_PROC_PATH_TAIL_STAT
+    je .stat
+    cmp eax, LINUX_PROC_PATH_TAIL_MAPS
+    je .maps
+    jmp .fail
+
+.cmdline:
+    mov eax, LINUX_SYNTHETIC_FILE_CMDLINE
+    clc
+    ret
+
+.status:
+    mov eax, LINUX_SYNTHETIC_FILE_STATUS
+    clc
+    ret
+
+.stat:
+    mov eax, LINUX_SYNTHETIC_FILE_STAT
+    clc
+    ret
+
+.maps:
+    mov eax, LINUX_SYNTHETIC_FILE_MAPS
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+linux_write_u32_dec:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    cmp eax, 0
+    jne .digits
+    mov byte [edi], '0'
+    inc edi
+    jmp .done
+
+.digits:
+    mov esi, linux_decimal_scratch
+    xor ecx, ecx
+
+.divide:
+    xor edx, edx
+    mov ebx, 10
+    div ebx
+    add dl, '0'
+    mov [esi + ecx], dl
+    inc ecx
+    test eax, eax
+    jnz .divide
+
+.reverse:
+    dec ecx
+    mov al, [esi + ecx]
+    stosb
+    cmp ecx, 0
+    jne .reverse
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+%endif
+
 linux_path_is_synthetic_lib_dir:
     push eax
     push ebx
@@ -27130,13 +27640,13 @@ linux_path_is_synthetic_lib_dir:
     mov edi, linux_path_tmp_chromium_profile_slash
     call linux_path_has_prefix_child
     jnc .ok
-    cmp dword [linux_relative_synthetic_dir_arg], 1
+    cmp dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
     jne .check_proc_dirs
     call linux_path_is_relative_child
     jnc .ok
 
 .check_proc_dirs:
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
     mov eax, [syscall_ptr_arg]
     mov ebx, linux_path_proc_end - linux_path_proc
     mov edi, linux_path_proc
@@ -27167,6 +27677,8 @@ linux_path_is_synthetic_lib_dir:
     mov edi, linux_path_proc_self_fd_slash
     call user_path_equals
     jnc .ok
+%endif
+%ifdef LINUX_M1_CHROMIUM_SMOKE
     mov eax, [syscall_ptr_arg]
     mov ebx, linux_path_dev_end - linux_path_dev
     mov edi, linux_path_dev
@@ -27276,6 +27788,10 @@ linux_path_get_synthetic_file:
     mov edi, linux_path_proc_self_fd2
     call user_path_equals
     jnc .fd2
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    call linux_path_get_proc_pid_synthetic_file
+    jnc .done
+%endif
     mov eax, [syscall_ptr_arg]
     mov ebx, linux_path_usr_lib_os_release_end - linux_path_usr_lib_os_release
     mov edi, linux_path_usr_lib_os_release
@@ -28835,6 +29351,94 @@ linux_sys_gettimeofday:
     mov eax, -ERRNO_EFAULT
     ret
 
+linux_sys_getcwd:
+    cmp ebx, 0
+    je .efault
+    cmp ecx, 2
+    jb .erange
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, 2
+    call user_range_validate
+    jc .efault
+    mov edi, [syscall_ptr_arg]
+    mov byte [edi], '/'
+    mov byte [edi + 1], 0
+    mov eax, 2
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+.erange:
+    mov eax, -ERRNO_ERANGE
+    ret
+
+linux_sys_nanosleep_ticks:
+    cmp ebx, 0
+    je .efault
+    mov [syscall_ptr_arg], ebx
+    mov [syscall_stat_ptr], ecx
+    mov eax, ebx
+    mov ebx, LINUX_TIMESPEC_BYTES
+    call user_range_validate
+    jc .efault
+    mov esi, [syscall_ptr_arg]
+    mov eax, [esi]
+    test eax, 0x80000000
+    jnz .einval
+    mov edx, [esi + 4]
+    test edx, 0x80000000
+    jnz .einval
+    cmp edx, 1000000000
+    jae .einval
+    mov ecx, [syscall_stat_ptr]
+    cmp ecx, 0
+    je .rem_ready
+    mov eax, ecx
+    mov ebx, LINUX_TIMESPEC_BYTES
+    call user_range_validate
+    jc .efault
+
+.rem_ready:
+    mov esi, [syscall_ptr_arg]
+    mov eax, [esi]
+    mov ebx, PIT_IRQ_HZ
+    mul ebx
+    test edx, edx
+    jnz .einval
+    mov [linux_nanosleep_ticks_arg], eax
+    mov eax, [esi + 4]
+    cmp eax, 0
+    je .done
+    xor edx, edx
+    mov ebx, 1000000000 / PIT_IRQ_HZ
+    div ebx
+    cmp edx, 0
+    je .ticks_ready
+    inc eax
+
+.ticks_ready:
+    add eax, [linux_nanosleep_ticks_arg]
+    jc .einval
+    mov [linux_nanosleep_ticks_arg], eax
+
+.done:
+    mov eax, [linux_nanosleep_ticks_arg]
+    clc
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    stc
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    stc
+    ret
+
 linux_sys_clock_gettime:
     cmp ebx, LINUX_CLOCK_REALTIME_ID
     je .clock_ok
@@ -29646,6 +30250,12 @@ linux_sys_open_directory:
     and eax, LINUX_O_ACCMODE | LINUX_O_CREAT | LINUX_O_TRUNC | LINUX_O_APPEND
     jnz .eisdir
     mov [syscall_ptr_arg], ebx
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    call linux_path_is_proc_root_dir
+    jnc .bind_synthetic_proc
+    call linux_path_is_proc_pid_dir
+    jnc .bind_synthetic_proc_pid
+%endif
     call linux_path_is_synthetic_lib_dir
     jnc .bind_synthetic
     call fat_user_path_is_root
@@ -29669,6 +30279,16 @@ linux_sys_open_directory:
 
 .bind_synthetic:
     mov dword [linux_dir_cluster_arg], LINUX_SYNTHETIC_DIR_CLUSTER
+    jmp .bind
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.bind_synthetic_proc:
+    mov dword [linux_dir_cluster_arg], LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    jmp .bind
+
+.bind_synthetic_proc_pid:
+    mov dword [linux_dir_cluster_arg], LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+%endif
 
 .bind:
     mov dword [syscall_open_flags], 0
@@ -29738,6 +30358,12 @@ linux_sys_getdents64:
     mov dword [linux_getdents_emitted], 0
     mov dword [linux_getdents_seen], 0
     mov eax, [fd_indices + eax * 4]
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .proc_dir
+    cmp eax, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    je .finish
+%endif
     cmp eax, LINUX_SYNTHETIC_DIR_CLUSTER
     je .finish
     cmp eax, 0
@@ -29843,6 +30469,13 @@ linux_sys_getdents64:
     mov [fat_list_dir_cluster], ax
     jmp .subdir_cluster_loop
 
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.proc_dir:
+    call linux_proc_getdents64
+    jc .full
+    jmp .finish
+%endif
+
 .full:
     cmp dword [linux_getdents_used], 0
     je .einval
@@ -29869,6 +30502,107 @@ linux_sys_getdents64:
 .einval:
     mov eax, -ERRNO_EINVAL
     ret
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+linux_proc_getdents64:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, process_table
+    mov ecx, PROCESS_SLOT_COUNT
+
+.loop:
+    cmp ecx, 0
+    je .ok
+    cmp dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    je .next
+    cmp dword [esi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .next
+    cmp dword [esi + PROC_PID], 0xffffffff
+    je .next
+    mov eax, [linux_getdents_seen]
+    cmp eax, [linux_getdents_skip]
+    jb .count
+    call linux_proc_dirent64_emit_process
+    jc .fail
+
+.count:
+    inc dword [linux_getdents_seen]
+
+.next:
+    add esi, PROCESS_RECORD_BYTES
+    dec ecx
+    jmp .loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_proc_dirent64_emit_process:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov ebx, [linux_getdents_used]
+    add ebx, LINUX_PROC_DIRENT64_RECLEN
+    jc .no_room
+    cmp ebx, [linux_getdents_user_len]
+    ja .no_room
+
+    mov edi, [linux_getdents_user_ptr]
+    add edi, [linux_getdents_used]
+    push edi
+    mov ecx, LINUX_PROC_DIRENT64_RECLEN
+    xor eax, eax
+    cld
+    rep stosb
+    pop edi
+
+    mov eax, [esi + PROC_PID]
+    mov [edi + LINUX_DIRENT64_INO], eax
+    mov dword [edi + LINUX_DIRENT64_INO + 4], 0
+    mov eax, [linux_getdents_seen]
+    inc eax
+    mov [edi + LINUX_DIRENT64_OFF], eax
+    mov dword [edi + LINUX_DIRENT64_OFF + 4], 0
+    mov word [edi + LINUX_DIRENT64_RECLEN], LINUX_PROC_DIRENT64_RECLEN
+    mov byte [edi + LINUX_DIRENT64_TYPE], LINUX_DT_DIR
+    lea edi, [edi + LINUX_DIRENT64_NAME]
+    mov eax, [esi + PROC_PID]
+    call linux_write_u32_dec
+    mov byte [edi], 0
+    add dword [linux_getdents_used], LINUX_PROC_DIRENT64_RECLEN
+    inc dword [linux_getdents_emitted]
+    clc
+    jmp .done
+
+.no_room:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+%endif
 
 linux_dirent64_emit_entry:
     push ebx
@@ -32233,6 +32967,12 @@ linux_stat_path_common:
     call linux_path_get_synthetic_file
     jnc .synthetic_file
 %endif
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    call linux_path_is_proc_root_dir
+    jnc .synthetic_proc_dir
+    call linux_path_is_proc_pid_dir
+    jnc .synthetic_proc_pid_dir
+%endif
     call linux_path_is_synthetic_lib_dir
     jnc .synthetic_dir
 %ifdef LINUX_M1_CHROMIUM_SMOKE
@@ -32286,6 +33026,22 @@ linux_stat_path_common:
 	xor eax, eax
 	mov edx, STAT_MODE_READONLY_DIR
 	jmp .found
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.synthetic_proc_dir:
+    mov dword [stat_inode_arg], 3
+    xor eax, eax
+    mov edx, STAT_MODE_READONLY_DIR
+    jmp .found
+
+.synthetic_proc_pid_dir:
+    mov eax, [linux_proc_path_pid_arg]
+    add eax, 64
+    mov [stat_inode_arg], eax
+    xor eax, eax
+    mov edx, STAT_MODE_READONLY_DIR
+    jmp .found
+%endif
 
 .dev_null:
     mov dword [stat_inode_arg], 4
@@ -32417,6 +33173,12 @@ linux_fstat64_common:
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .ebadf
     mov edx, [fd_indices + eax * 4]
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .directory_proc_inode
+    cmp edx, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    je .directory_proc_pid_inode
+%endif
     cmp edx, LINUX_SYNTHETIC_DIR_CLUSTER
     jne .directory_inode_ready
     mov edx, 3
@@ -32426,6 +33188,16 @@ linux_fstat64_common:
     xor eax, eax
     mov edx, STAT_MODE_READONLY_DIR
     jmp .fill
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.directory_proc_inode:
+    mov edx, 3
+    jmp .directory_inode_ready
+
+.directory_proc_pid_inode:
+    mov edx, 4
+    jmp .directory_inode_ready
+%endif
 
 .readonly_file:
     mov edx, [fd_indices + eax * 4]
@@ -33685,6 +34457,12 @@ syscall_handler:
     mov eax, [syscall_open_flags]
     test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
     jnz .open_synthetic_dir_skip
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    call linux_path_is_proc_root_dir
+    jnc .open_synthetic_proc_dir_pop_bind
+    call linux_path_is_proc_pid_dir
+    jnc .open_synthetic_proc_pid_dir_pop_bind
+%endif
     call linux_path_is_synthetic_lib_dir
     jnc .open_synthetic_dir_pop_bind
 %ifdef LINUX_M1_CHROMIUM_SMOKE
@@ -33721,6 +34499,43 @@ syscall_handler:
     pop eax
     add eax, USER_FD_BASE
     jmp .return
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.open_synthetic_proc_dir_pop_bind:
+    pop ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    mov dword [fd_indices + eax * 4], LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+
+.open_synthetic_proc_pid_dir_pop_bind:
+    pop ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    mov dword [fd_indices + eax * 4], LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    mov dword [fd_offsets + eax * 4], 0
+    mov edx, [linux_proc_path_pid_arg]
+    mov [fd_file_sizes + eax * 4], edx
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+%endif
 
 .open_library_alias_pop_lookup:
     pop ebx
@@ -36479,6 +37294,8 @@ syscall_handler:
     je .linux_select
     cmp eax, LINUX_SYS_WRITEV
     je .linux_writev
+    cmp eax, LINUX_SYS_NANOSLEEP
+    je .linux_nanosleep
     cmp eax, LINUX_SYS_POLL
     je .linux_poll
     cmp eax, LINUX_SYS_GETSID
@@ -36493,6 +37310,8 @@ syscall_handler:
     je .linux_sigaltstack
     cmp eax, LINUX_SYS_PREAD64
     je .linux_pread64
+    cmp eax, LINUX_SYS_GETCWD
+    je .linux_getcwd
     cmp eax, LINUX_SYS_UGETRLIMIT
     je .linux_getrlimit
     cmp eax, LINUX_SYS_MMAP2
@@ -36503,6 +37322,14 @@ syscall_handler:
     je .linux_stat64
     cmp eax, LINUX_SYS_FSTAT64
     je .linux_fstat64
+    cmp eax, LINUX_SYS_GETUID32
+    je .linux_get_identity_zero
+    cmp eax, LINUX_SYS_GETGID32
+    je .linux_get_identity_zero
+    cmp eax, LINUX_SYS_GETEUID32
+    je .linux_get_identity_zero
+    cmp eax, LINUX_SYS_GETEGID32
+    je .linux_get_identity_zero
     cmp eax, LINUX_SYS_GETDENTS64
     je .linux_getdents64
     cmp eax, LINUX_SYS_FCNTL64
@@ -36620,12 +37447,28 @@ syscall_handler:
     jc .linux_openat_dir_relative_bad_pop
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .linux_openat_dir_relative_bad_pop
-    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
-    jne .linux_openat_dir_relative_bad_pop
-    mov dword [linux_relative_synthetic_dir_arg], 1
+    mov edx, [fd_indices + eax * 4]
+    cmp edx, LINUX_SYNTHETIC_DIR_CLUSTER
+    je .linux_openat_dir_relative_generic
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .linux_openat_dir_relative_proc
+%endif
+    jmp .linux_openat_dir_relative_bad_pop
+
+.linux_openat_dir_relative_generic:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
     pop esi
     pop edx
     jmp .linux_openat_dir
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.linux_openat_dir_relative_proc:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+    pop esi
+    pop edx
+    jmp .linux_openat_dir
+%endif
 
 .linux_openat_dir_relative_bad_pop:
     pop esi
@@ -36662,11 +37505,28 @@ syscall_handler:
     jc .linux_openat_relative_bad_pop
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .linux_openat_relative_bad_pop
-    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
-    jne .linux_openat_relative_bad_pop
+    mov edx, [fd_indices + eax * 4]
+    cmp edx, LINUX_SYNTHETIC_DIR_CLUSTER
+    je .linux_openat_relative_generic
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .linux_openat_relative_proc
+%endif
+    jmp .linux_openat_relative_bad_pop
+
+.linux_openat_relative_generic:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
     pop esi
     pop edx
     jmp .linux_openat_args
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.linux_openat_relative_proc:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+    pop esi
+    pop edx
+    jmp .linux_openat_args
+%endif
 
 .linux_openat_relative_bad_pop:
     pop esi
@@ -36713,9 +37573,23 @@ syscall_handler:
     jc .bad_syscall_enoent
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
-    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
-    jne .bad_syscall_enoent
-    mov dword [linux_relative_synthetic_dir_arg], 1
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, LINUX_SYNTHETIC_DIR_CLUSTER
+    je .linux_faccessat_relative_generic
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .linux_faccessat_relative_proc
+%endif
+    jmp .bad_syscall_enoent
+
+.linux_faccessat_relative_generic:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
+    jmp .linux_faccessat_args
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.linux_faccessat_relative_proc:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+%endif
 
 .linux_faccessat_args:
     mov ebx, ecx
@@ -36777,9 +37651,23 @@ syscall_handler:
     jc .bad_syscall_enoent
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
-    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
-    jne .bad_syscall_enoent
-    mov dword [linux_relative_synthetic_dir_arg], 1
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, LINUX_SYNTHETIC_DIR_CLUSTER
+    je .linux_fstatat64_relative_generic
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .linux_fstatat64_relative_proc
+%endif
+    jmp .bad_syscall_enoent
+
+.linux_fstatat64_relative_generic:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
+    jmp .linux_fstatat64_args
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.linux_fstatat64_relative_proc:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+%endif
 
 .linux_fstatat64_args:
     mov dword [linux_stat_format], LINUX_STAT_FORMAT_STAT64
@@ -36822,9 +37710,23 @@ syscall_handler:
     jc .bad_syscall_enoent
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .bad_syscall_enoent
-    cmp dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
-    jne .bad_syscall_enoent
-    mov dword [linux_relative_synthetic_dir_arg], 1
+    mov eax, [fd_indices + eax * 4]
+    cmp eax, LINUX_SYNTHETIC_DIR_CLUSTER
+    je .linux_statx_relative_generic
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
+    je .linux_statx_relative_proc
+%endif
+    jmp .bad_syscall_enoent
+
+.linux_statx_relative_generic:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_GENERIC
+    jmp .linux_statx_args
+
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+.linux_statx_relative_proc:
+    mov dword [linux_relative_synthetic_dir_arg], LINUX_RELATIVE_SYNTHETIC_DIR_PROC
+%endif
 
 .linux_statx_args:
     call linux_stat_path_common
@@ -36837,6 +37739,12 @@ syscall_handler:
 .linux_select:
     call linux_sys_select
     jmp .return
+
+.linux_nanosleep:
+    call linux_sys_nanosleep_ticks
+    jc .bad_syscall_from_eax
+    mov ebx, eax
+    jmp .sleep_ticks
 
 .linux_poll:
     call linux_sys_poll
@@ -36860,6 +37768,10 @@ syscall_handler:
 
 .linux_gettimeofday:
     call linux_sys_gettimeofday
+    jmp .return
+
+.linux_getcwd:
+    call linux_sys_getcwd
     jmp .return
 
 .linux_brk:
@@ -48435,7 +49347,7 @@ linux_path_usr_lib_chromium_locales_end:
 linux_path_usr_lib_chromium_locales_slash db "/usr/lib/chromium/locales/", 0
 linux_path_usr_lib_chromium_locales_slash_end:
 %endif
-%ifdef LINUX_M1_CHROMIUM_SMOKE
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
 linux_path_proc db "/proc", 0
 linux_path_proc_end:
 linux_path_proc_slash db "/proc/", 0
@@ -48448,6 +49360,12 @@ linux_path_proc_self_fd db "/proc/self/fd", 0
 linux_path_proc_self_fd_end:
 linux_path_proc_self_fd_slash db "/proc/self/fd/", 0
 linux_path_proc_self_fd_slash_end:
+linux_proc_tail_cmdline db "cmdline", 0
+linux_proc_tail_status db "status", 0
+linux_proc_tail_stat db "stat", 0
+linux_proc_tail_maps db "maps", 0
+%endif
+%ifdef LINUX_M1_CHROMIUM_SMOKE
 linux_path_dev db "/dev", 0
 linux_path_dev_end:
 linux_path_dev_slash db "/dev/", 0
@@ -48744,6 +49662,16 @@ linux_chromium_resource_alias_dir_table:
     dd chromium_dir_name_83
 %endif
 %ifdef LINUX_SYNTHETIC_FILE_SMOKE
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+linux_synthetic_cmdline_text db "busybox", 0, "ps", 0
+linux_synthetic_cmdline_text_end:
+linux_synthetic_status_text db "Name:", 9, "busybox", 10, "State:", 9, "R (running)", 10, "Pid:", 9, "4", 10, "PPid:", 9, "0", 10, "Uid:", 9, "0", 9, "0", 9, "0", 9, "0", 10, "Gid:", 9, "0", 9, "0", 9, "0", 9, "0", 10, "VmSize:", 9, "0 kB", 10, "VmRSS:", 9, "0 kB", 10
+linux_synthetic_status_text_end:
+linux_synthetic_stat_text db "4 (busybox) R 0 4 4 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", 10
+linux_synthetic_stat_text_end:
+linux_synthetic_maps_text db "08000000-18000000 r-xp 00000000 00:00 0 /BIN/BUSYBOX.ELF", 10
+linux_synthetic_maps_text_end:
+%else
 linux_synthetic_cmdline_text db "chromium", 0
 linux_synthetic_cmdline_text_end:
 linux_synthetic_status_text db "Name:", 9, "chromium", 10, "State:", 9, "R (running)", 10
@@ -48752,6 +49680,7 @@ linux_synthetic_stat_text db "1 (chromium) R 0 1 1 0 -1 0 0 0 0 0 0 0 0 20 0 1 0
 linux_synthetic_stat_text_end:
 linux_synthetic_maps_text db "08000000-18000000 r-xp 00000000 00:00 0 /BIN/CHROMIUM.ELF", 10
 linux_synthetic_maps_text_end:
+%endif
 linux_synthetic_fd_target_text db "/dev/null", 10
 linux_synthetic_fd_target_text_end:
 linux_synthetic_os_release_text db "NAME=vibe-os", 10, "ID=vibe-os", 10, "PRETTY_NAME=", 34, "vibe-os Linux personality seed", 34, 10
@@ -48792,6 +49721,7 @@ chromium_arg_user_data_dir db "--user-data-dir=/tmp/chromium-profile", 0
 chromium_arg_about_blank db "about:blank", 0
 %endif
 busybox_arg_argv0 db "busybox", 0
+busybox_arg_cat_path db "/ETC/CATOK.TXT", 0
 %ifdef LINUX_M1_BUSYBOX_SMOKE
 busybox_arg_echo db "echo", 0
 busybox_arg_marker db "busybox-ok", 0
@@ -48803,6 +49733,28 @@ busybox_arg_true db "true", 0
 busybox_arg_sh db "sh", 0
 busybox_arg_dash_c db "-c", 0
 busybox_arg_script db "echo busybox-ok", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+busybox_arg_ls db "ls", 0
+busybox_arg_bin_dir db "/BIN", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
+busybox_arg_cat db "cat", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_CP_SMOKE
+busybox_arg_cp db "cp", 0
+busybox_arg_cp_dst db "/CP.TXT", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_GREP_SMOKE
+busybox_arg_grep db "grep", 0
+busybox_arg_grep_pattern db "cat", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_SLEEP_SMOKE
+busybox_arg_sleep db "sleep", 0
+busybox_arg_sleep_seconds db "1", 0
+%endif
+%ifdef LINUX_M1_BUSYBOX_PS_SMOKE
+busybox_arg_ps db "ps", 0
 %endif
 %ifdef LINUX_LD_DEBUG_SMOKE
 ld_debug_env db "LD_DEBUG=files,libs,symbols,versions", 0
@@ -50270,6 +51222,7 @@ linux_socket_last_result dd 0
 linux_socket_setsockopt_calls dd 0
 linux_socket_setsockopt_successes dd 0
 linux_socket_setsockopt_failures dd 0
+linux_nanosleep_ticks_arg dd 0
 linux_clone_calls dd 0
 linux_clone_successes dd 0
 linux_clone_failures dd 0
@@ -50300,6 +51253,13 @@ linux_library_alias_name_buffer times 11 db 0
 %ifdef LINUX_M1_CHROMIUM_SMOKE
 linux_chromium_resource_name_ptr dd 0
 linux_chromium_resource_dir_ptr dd chromium_dir_name_83
+%endif
+%ifdef LINUX_PROC_SYNTHETIC_SMOKE
+linux_proc_path_pid_arg dd 0
+linux_proc_path_process_ptr dd 0
+linux_proc_path_tail_kind dd 0
+linux_decimal_scratch times 10 db 0
+align 4
 %endif
 %ifdef LINUX_SYNTHETIC_FILE_SMOKE
 linux_synthetic_file_id_arg dd 0

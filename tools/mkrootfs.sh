@@ -16,7 +16,8 @@
 #   /BIN/PROCEXE.ELF, /BIN/TMPDIR.ELF, /BIN/PROCID.ELF,
 #   /BIN/LDSOHDR.ELF, /BIN/LDSOREL.ELF, /BIN/EXECVE.ELF, /BIN/VFORKEX.ELF,
 #   /BIN/VFORKCH.ELF, /BIN/VFORKXGP.ELF, /BIN/VFORKXG.ELF, /BIN/TIME.ELF,
-#   and the current browser-startup syscall probes. If present,
+#   and the current browser-startup syscall probes. It also installs
+#   /ETC/CATOK.TXT for BusyBox cat/coreutils smoke proof. If present,
 #   tests/linux/linux_doom is installed as /BIN/LDOOM.ELF, and
 #   build/busybox-i386/busybox-vibe is installed as /BIN/BUSYBOX.ELF.
 #   If present, real-libc artifacts are also installed under /BIN and /LIB.
@@ -41,15 +42,6 @@ case "${1:-}" in
         exit 2
         ;;
 esac
-
-# 1. Build the repo linker, then the Linux test binaries.
-make build/link_elf32
-make -C tests/linux
-if command -v "${ZIG:-zig}" >/dev/null 2>&1; then
-    make -C tests/linux real-libc
-else
-    echo "warning: zig not found; skipping generated musl/glibc Linux probes" >&2
-fi
 
 find_glibc_lib_pair() {
     if [ -n "${VIBE_GLIBC_LIB_DIR:-}" ]; then
@@ -88,9 +80,23 @@ find_glibc_lib_pair() {
     return 1
 }
 
+if [ "$DRY_RUN" = "0" ]; then
+    # 1. Build the repo linker, then the Linux test binaries.
+    make build/link_elf32
+    make -C tests/linux
+    if command -v "${ZIG:-zig}" >/dev/null 2>&1; then
+        make -C tests/linux real-libc
+    else
+        echo "warning: zig not found; skipping generated musl/glibc Linux probes" >&2
+    fi
+    if [ -d build/busybox-src/busybox-1.35.0 ] && [ "${VIBE_SKIP_BUSYBOX_BUILD:-0}" != "1" ]; then
+        tools/build_busybox_vibe.sh
+    fi
+fi
+
 # 2. Collect --asset args for every built binary under /BIN.
-ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/EXECVE.ELF=tests/linux/execve_probe --asset /BIN/VFORKEX.ELF=tests/linux/vfork_exec_probe --asset /BIN/VFORKCH.ELF=tests/linux/vfork_child_probe --asset /BIN/VFORKXGP.ELF=tests/linux/vfork_exit_group_probe --asset /BIN/VFORKXG.ELF=tests/linux/vfork_exit_group_child --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/DEVNULL.ELF=tests/linux/dev_null_probe --asset /BIN/LLSEEK.ELF=tests/linux/llseek_probe --asset /BIN/MMAPLG.ELF=tests/linux/mmap_large_probe --asset /BIN/MMAPMNY.ELF=tests/linux/mmap_many_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe --asset /BIN/CLONE3.ELF=tests/linux/clone3_probe --asset /BIN/PROCEXE.ELF=tests/linux/proc_self_exe_probe --asset /BIN/TMPDIR.ELF=tests/linux/tmp_dir_probe --asset /BIN/PROCID.ELF=tests/linux/procid_probe --asset /BIN/LIBMAGIC.ELF=tests/linux/libmagic_probe --asset /BIN/LDSOHDR.ELF=tests/linux/ldso_header_probe --asset /BIN/LDSOREL.ELF=tests/linux/ldso_reloc_probe --asset /BIN/WRITEV.ELF=tests/linux/writev_probe --asset /BIN/EVENTFD.ELF=tests/linux/eventfd_probe --asset /BIN/EPOLL.ELF=tests/linux/epoll_probe --asset /BIN/TIMERFD.ELF=tests/linux/timerfd_probe --asset /BIN/TIME.ELF=tests/linux/time_probe --asset /BIN/FUTEX.ELF=tests/linux/futex_probe --asset /BIN/THREAD.ELF=tests/linux/thread_probe --asset /BIN/RSEQ.ELF=tests/linux/rseq_probe"
-DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/execve_probe tests/linux/vfork_exec_probe tests/linux/vfork_child_probe tests/linux/vfork_exit_group_probe tests/linux/vfork_exit_group_child tests/linux/dir_probe tests/linux/fd_probe tests/linux/dev_null_probe tests/linux/llseek_probe tests/linux/mmap_large_probe tests/linux/mmap_many_probe tests/linux/pipe_probe tests/linux/fork_probe tests/linux/clone3_probe tests/linux/proc_self_exe_probe tests/linux/tmp_dir_probe tests/linux/procid_probe tests/linux/libmagic_probe tests/linux/ldso_header_probe tests/linux/ldso_reloc_probe tests/linux/writev_probe tests/linux/eventfd_probe tests/linux/epoll_probe tests/linux/timerfd_probe tests/linux/time_probe tests/linux/futex_probe tests/linux/thread_probe tests/linux/rseq_probe"
+ASSETS="--asset /BIN/HELLO.ELF=tests/linux/hello_write --asset /BIN/AUXV.ELF=tests/linux/auxv_dump --asset /BIN/TLS.ELF=tests/linux/tls_probe --asset /BIN/STARTUP.ELF=tests/linux/startup_probe --asset /BIN/XLIMIT.ELF=tests/linux/exec_limits_probe --asset /BIN/EXECVE.ELF=tests/linux/execve_probe --asset /BIN/VFORKEX.ELF=tests/linux/vfork_exec_probe --asset /BIN/VFORKCH.ELF=tests/linux/vfork_child_probe --asset /BIN/VFORKXGP.ELF=tests/linux/vfork_exit_group_probe --asset /BIN/VFORKXG.ELF=tests/linux/vfork_exit_group_child --asset /BIN/DIR.ELF=tests/linux/dir_probe --asset /BIN/FD.ELF=tests/linux/fd_probe --asset /BIN/DEVNULL.ELF=tests/linux/dev_null_probe --asset /BIN/LLSEEK.ELF=tests/linux/llseek_probe --asset /BIN/MMAPLG.ELF=tests/linux/mmap_large_probe --asset /BIN/MMAPMNY.ELF=tests/linux/mmap_many_probe --asset /BIN/PIPE.ELF=tests/linux/pipe_probe --asset /BIN/FORK.ELF=tests/linux/fork_probe --asset /BIN/CLONE3.ELF=tests/linux/clone3_probe --asset /BIN/PROCEXE.ELF=tests/linux/proc_self_exe_probe --asset /BIN/TMPDIR.ELF=tests/linux/tmp_dir_probe --asset /BIN/PROCID.ELF=tests/linux/procid_probe --asset /BIN/LIBMAGIC.ELF=tests/linux/libmagic_probe --asset /BIN/LDSOHDR.ELF=tests/linux/ldso_header_probe --asset /BIN/LDSOREL.ELF=tests/linux/ldso_reloc_probe --asset /BIN/WRITEV.ELF=tests/linux/writev_probe --asset /BIN/EVENTFD.ELF=tests/linux/eventfd_probe --asset /BIN/EPOLL.ELF=tests/linux/epoll_probe --asset /BIN/TIMERFD.ELF=tests/linux/timerfd_probe --asset /BIN/TIME.ELF=tests/linux/time_probe --asset /BIN/FUTEX.ELF=tests/linux/futex_probe --asset /BIN/THREAD.ELF=tests/linux/thread_probe --asset /BIN/RSEQ.ELF=tests/linux/rseq_probe --asset /ETC/CATOK.TXT=tests/linux/catok.txt"
+DEPS="tests/linux/hello_write tests/linux/auxv_dump tests/linux/tls_probe tests/linux/startup_probe tests/linux/exec_limits_probe tests/linux/execve_probe tests/linux/vfork_exec_probe tests/linux/vfork_child_probe tests/linux/vfork_exit_group_probe tests/linux/vfork_exit_group_child tests/linux/dir_probe tests/linux/fd_probe tests/linux/dev_null_probe tests/linux/llseek_probe tests/linux/mmap_large_probe tests/linux/mmap_many_probe tests/linux/pipe_probe tests/linux/fork_probe tests/linux/clone3_probe tests/linux/proc_self_exe_probe tests/linux/tmp_dir_probe tests/linux/procid_probe tests/linux/libmagic_probe tests/linux/ldso_header_probe tests/linux/ldso_reloc_probe tests/linux/writev_probe tests/linux/eventfd_probe tests/linux/epoll_probe tests/linux/timerfd_probe tests/linux/time_probe tests/linux/futex_probe tests/linux/thread_probe tests/linux/rseq_probe tests/linux/catok.txt"
 
 if [ -f tests/linux/hello_musl ]; then
     ASSETS="$ASSETS --asset /BIN/MUSL.ELF=tests/linux/hello_musl"
