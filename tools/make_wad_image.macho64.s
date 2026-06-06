@@ -521,7 +521,7 @@ LBB0_73:
 	callq	_read_file
 	movq	%rax, -96(%rbp)
 	movq	%rdx, -88(%rbp)
-	cmpq	$67108864, %rdx                 ## imm = 0x4000000
+	cmpq	$536870912, %rdx                ## imm = 0x20000000
 	jne	LBB0_313
 ## %bb.81:
 	movq	%rax, %r14
@@ -531,7 +531,7 @@ LBB0_73:
 	cmpl	$2048, 454(%r14)                ## imm = 0x800
 	jne	LBB0_315
 ## %bb.83:
-	cmpl	$129024, 458(%r14)              ## imm = 0x1F800
+	cmpl	$1046528, 458(%r14)             ## imm = 0xFF800
 	jne	LBB0_315
 ## %bb.84:
 	cmpw	$-21931, 1049086(%r14)          ## imm = 0xAA55
@@ -540,7 +540,7 @@ LBB0_73:
 	cmpw	$512, 1048587(%r14)             ## imm = 0x200
 	jne	LBB0_317
 ## %bb.86:
-	cmpb	$2, 1048589(%r14)
+	cmpb	$16, 1048589(%r14)
 	jne	LBB0_318
 ## %bb.87:
 	leaq	L_str.515(%rip), %rdi
@@ -550,7 +550,7 @@ LBB0_73:
 	xorl	%eax, %eax
 	callq	_printf
 	leaq	L_.str.136(%rip), %rdi
-	movl	$67108864, %esi                 ## imm = 0x4000000
+	movl	$536870912, %esi                ## imm = 0x20000000
 	xorl	%eax, %eax
 	callq	_printf
 	leaq	L_.str.137(%rip), %rdi
@@ -558,7 +558,7 @@ LBB0_73:
 	xorl	%eax, %eax
 	callq	_printf
 	leaq	L_.str.138(%rip), %rdi
-	movl	$129024, %esi                   ## imm = 0x1F800
+	movl	$1046528, %esi                  ## imm = 0xFF800
 	xorl	%eax, %eax
 	callq	_printf
 	leaq	L_.str.139(%rip), %rdi
@@ -574,7 +574,7 @@ LBB0_73:
 	xorl	%eax, %eax
 	callq	_printf
 	leaq	L_.str.142(%rip), %rdi
-	movl	$64239, %esi                    ## imm = 0xFAEF
+	movl	$65373, %esi                    ## imm = 0xFF5D
 	xorl	%eax, %eax
 	callq	_printf
 	movq	%r14, -131224(%rbp)             ## 8-byte Spill
@@ -645,8 +645,8 @@ LBB0_95:                                ## =>This Inner Loop Header: Depth=1
 	je	LBB0_286
 ## %bb.98:                              ##   in Loop: Header=BB0_95 Depth=1
 	movl	-131192(%rbp), %ecx
-	leal	-64241(%rcx), %eax
-	cmpl	$-64240, %eax                   ## imm = 0xFFFF0510
+	leal	-65375(%rcx), %eax
+	cmpl	$-65374, %eax                   ## imm = 0xFFFF00A2
 	jbe	LBB0_287
 ## %bb.99:                              ##   in Loop: Header=BB0_95 Depth=1
 	movq	%r12, %rdi
@@ -838,8 +838,8 @@ LBB0_125:                               ##   Parent Loop BB0_119 Depth=1
 	jne	LBB0_125
 	jmp	LBB0_118
 LBB0_127:
-	movq	$67108864, -131192(%rbp)        ## imm = 0x4000000
-	movl	$67108864, %edi                 ## imm = 0x4000000
+	movq	$536870912, -131192(%rbp)       ## imm = 0x20000000
+	movl	$536870912, %edi                ## imm = 0x20000000
 	movl	$1, %esi
 	callq	_calloc
 	testq	%rax, %rax
@@ -1857,12 +1857,12 @@ _mutate_root_marker:                    ## @mutate_root_marker
 	movq	(%rax), %rax
 	movq	%rax, -48(%rbp)
 	callq	_read_file
-	cmpq	$67108864, %rdx                 ## imm = 0x4000000
+	cmpq	$536870912, %rdx                ## imm = 0x20000000
 	jne	LBB1_27
 ## %bb.1:
 	movq	%rax, %r14
 	movq	%rax, -131184(%rbp)
-	movq	$67108864, -131176(%rbp)        ## imm = 0x4000000
+	movq	$536870912, -131176(%rbp)       ## imm = 0x20000000
 	leaq	-131168(%rbp), %rdi
 	leaq	1049088(%rax), %rsi
 	movl	$131072, %edx                   ## imm = 0x20000
@@ -1931,7 +1931,7 @@ LBB1_8:                                 ## =>This Inner Loop Header: Depth=1
 ## %bb.13:
 	movzwl	26(%r12), %r13d
 	movq	%r14, %r15
-	addq	$1325568, %r15                  ## imm = 0x143A00
+	addq	$1311232, %r15                  ## imm = 0x140200
 	movl	$65537, %ebx                    ## imm = 0x10001
 	.p2align	4
 LBB1_14:                                ## =>This Inner Loop Header: Depth=1
@@ -1945,13 +1945,13 @@ LBB1_14:                                ## =>This Inner Loop Header: Depth=1
 	movl	%edi, %eax
 	movzwl	-131168(%rbp,%rax,2), %r13d
 	movw	$0, -131168(%rbp,%rax,2)
-	leal	-64241(%rdi), %eax
-	cmpl	$-64240, %eax                   ## imm = 0xFFFF0510
+	leal	-65375(%rdi), %eax
+	cmpl	$-65374, %eax                   ## imm = 0xFFFF00A2
 	jbe	LBB1_30
 ## %bb.17:                              ##   in Loop: Header=BB1_14 Depth=1
-	shll	$10, %edi
+	shll	$13, %edi
 	addq	%r15, %rdi
-	movl	$1024, %esi                     ## imm = 0x400
+	movl	$8192, %esi                     ## imm = 0x2000
 	callq	___bzero
 	cmpw	$-8, %r13w
 	jb	LBB1_14
@@ -2064,12 +2064,12 @@ LCPI3_0:
 	.byte	0                               ## 0x0
 	.byte	0                               ## 0x0
 	.byte	248                             ## 0xf8
-	.byte	1                               ## 0x1
+	.byte	15                              ## 0xf
 	.byte	0                               ## 0x0
 LCPI3_1:
 	.byte	0                               ## 0x0
 	.byte	2                               ## 0x2
-	.byte	2                               ## 0x2
+	.byte	16                              ## 0x10
 	.byte	1                               ## 0x1
 	.byte	0                               ## 0x0
 	.byte	2                               ## 0x2
@@ -2260,7 +2260,7 @@ _install_bootable_layout:               ## @install_bootable_layout
 	callq	_free
 	movq	-15672(%rbp), %rdi              ## 8-byte Reload
 	callq	_read_file
-	cmpq	$163841, %rdx                   ## imm = 0x28001
+	cmpq	$229889, %rdx                   ## imm = 0x38201
 	jae	LBB3_358
 ## %bb.5:
 	movq	%rax, %r14
@@ -2289,7 +2289,7 @@ LBB3_7:
 	movq	%rdx, 1048579(%rcx)
 	movaps	LCPI3_1(%rip), %xmm0            ## xmm0 = [0,2,2,1,0,2,0,2,0,0,248,0,1,63,0,16]
 	movups	%xmm0, 1048587(%rcx)
-	movabsq	$141863388262694912, %rdx       ## imm = 0x1F8000000080000
+	movabsq	$0x0FF8000000080000, %rdx
 	movq	%rdx, 1048603(%rcx)
 	movw	$-32768, 1048611(%rcx)          ## imm = 0x8000
 	movl	$218104105, 1048614(%rcx)       ## imm = 0xD000129
@@ -2570,7 +2570,7 @@ LBB3_34:                                ## =>This Inner Loop Header: Depth=1
 	movb	$1, -15296(%rbp)
 	movl	$0, -15295(%rbp)
 	movb	$0, -15291(%rbp)
-	movabsq	$844429225033730, %rax          ## imm = 0x30000FFFF0002
+	movabsq	$987365736644610, %rax          ## imm = 0x38200FFFF0002
 	movq	%rax, -15290(%rbp)
 	movb	$1, -15282(%rbp)
 	movl	$0, -15281(%rbp)
@@ -6045,15 +6045,15 @@ LBB7_3:                                 ## =>This Inner Loop Header: Depth=1
 	movq	-64(%rbp), %r8                  ## 8-byte Reload
 	je	LBB7_7
 ## %bb.5:
-	leal	-64241(%rax), %ecx
-	cmpl	$-64240, %ecx                   ## imm = 0xFFFF0510
+	leal	-65375(%rax), %ecx
+	cmpl	$-65374, %ecx                   ## imm = 0xFFFF00A2
 	jbe	LBB7_6
 ## %bb.8:
 	movq	(%r14), %rcx
-	shll	$10, %eax
+	shll	$13, %eax
 	leaq	(%rcx,%rax), %rbx
-	addq	$1325568, %rbx                  ## imm = 0x143A00
-	movl	$1024, %r15d                    ## imm = 0x400
+	addq	$1311232, %rbx                  ## imm = 0x140200
+	movl	$8192, %r15d                    ## imm = 0x2000
 	jmp	LBB7_9
 LBB7_7:
 	movl	$1311232, %ebx                  ## imm = 0x140200
@@ -6185,16 +6185,16 @@ _ensure_child_directory:                ## @ensure_child_directory
 	testl	%esi, %esi
 	je	LBB8_3
 ## %bb.1:
-	leal	-64241(%rbx), %eax
-	cmpl	$-64240, %eax                   ## imm = 0xFFFF0510
+	leal	-65375(%rbx), %eax
+	cmpl	$-65374, %eax                   ## imm = 0xFFFF00A2
 	jbe	LBB8_2
 ## %bb.4:
 	movq	(%rdi), %rax
 	movl	%ebx, %edx
-	shll	$10, %edx
+	shll	$13, %edx
 	leaq	(%rax,%rdx), %r13
-	addq	$1325568, %r13                  ## imm = 0x143A00
-	movl	$1024, %r9d                     ## imm = 0x400
+	addq	$1311232, %r13                  ## imm = 0x140200
+	movl	$8192, %r9d                     ## imm = 0x2000
 	jmp	LBB8_5
 LBB8_3:
 	movl	$1311232, %r13d                 ## imm = 0x140200
@@ -6309,25 +6309,25 @@ LBB8_23:
 	movl	%eax, %edx
 	shrl	$8, %edx
 	movb	%dl, 27(%r13,%rcx)
-	leal	-64241(%rax), %esi
+	leal	-65375(%rax), %esi
 	movl	$0, 28(%r13,%rcx)
-	cmpl	$-64240, %esi                   ## imm = 0xFFFF0510
+	cmpl	$-65374, %esi                   ## imm = 0xFFFF00A2
 	jbe	LBB8_30
 ## %bb.25:
 	movq	-56(%rbp), %rcx                 ## 8-byte Reload
 	movq	(%rcx), %rcx
 	movl	%eax, %esi
-	shlq	$10, %rsi
-	movups	%xmm0, 1325568(%rcx,%rsi)
-	movups	%xmm0, 1325584(%rcx,%rsi)
+	shlq	$13, %rsi
+	movups	%xmm0, 1311232(%rcx,%rsi)
+	movups	%xmm0, 1311248(%rcx,%rsi)
 	movabsq	$2314885530818453550, %rdi      ## imm = 0x202020202020202E
-	movq	%rdi, 1325568(%rcx,%rsi)
-	movl	$538976288, 1325575(%rcx,%rsi)  ## imm = 0x20202020
-	movb	%r8b, 1325579(%rcx,%rsi)
-	movb	%al, 1325594(%rcx,%rsi)
-	movb	%dl, 1325595(%rcx,%rsi)
-	movl	$0, 1325596(%rcx,%rsi)
-	movups	%xmm0, 1325600(%rcx,%rsi)
+	movq	%rdi, 1311232(%rcx,%rsi)
+	movl	$538976288, 1311239(%rcx,%rsi)  ## imm = 0x20202020
+	movb	%r8b, 1311243(%rcx,%rsi)
+	movb	%al, 1311258(%rcx,%rsi)
+	movb	%dl, 1311259(%rcx,%rsi)
+	movl	$0, 1311260(%rcx,%rsi)
+	movups	%xmm0, 1311264(%rcx,%rsi)
 	movups	%xmm0, 1325616(%rcx,%rsi)
 	movabsq	$2314885530818457134, %rdx      ## imm = 0x2020202020202E2E
 	movq	%rdx, 1325600(%rcx,%rsi)
@@ -6372,8 +6372,8 @@ _write_cluster_chain:                   ## @write_cluster_chain
 	movq	%rsi, -80(%rbp)                 ## 8-byte Spill
 	movq	%rdi, %r12
 	movq	%rdx, -56(%rbp)                 ## 8-byte Spill
-	leaq	1023(%rdx), %r15
-	shrq	$10, %r15
+	leaq	8191(%rdx), %r15
+	shrq	$13, %r15
 	cmpl	$2, %r15d
 	movl	$1, %edi
 	cmovael	%r15d, %edi
@@ -6397,7 +6397,7 @@ LBB9_2:                                 ## =>This Inner Loop Header: Depth=1
 	incl	%eax
 	movl	%edx, (%rbx,%rsi,4)
 LBB9_4:                                 ##   in Loop: Header=BB9_2 Depth=1
-	cmpq	$64239, %rdx                    ## imm = 0xFAEF
+	cmpq	$65373, %rdx                    ## imm = 0xFF5D
 	ja	LBB9_5
 ## %bb.9:                               ##   in Loop: Header=BB9_2 Depth=1
 	incq	%rdx
@@ -6469,10 +6469,10 @@ LBB9_17:
 	jmp	LBB9_18
 	.p2align	4
 LBB9_22:                                ##   in Loop: Header=BB9_18 Depth=1
-	shlq	$10, %rax
+	shlq	$13, %rax
 	movq	(%r12), %rcx
 	leaq	(%rcx,%rax), %rdi
-	addq	$1325568, %rdi                  ## imm = 0x143A00
+	addq	$1311232, %rdi                  ## imm = 0x140200
 	movq	-56(%rbp), %rsi                 ## 8-byte Reload
 	subq	%r15, %rsi
 	addq	-80(%rbp), %rsi                 ## 8-byte Folded Reload
@@ -6486,12 +6486,12 @@ LBB9_23:                                ##   in Loop: Header=BB9_18 Depth=1
 	je	LBB9_24
 LBB9_18:                                ## =>This Inner Loop Header: Depth=1
 	movl	(%rbx,%r14,4), %eax
-	leal	-64241(%rax), %ecx
-	cmpl	$-64240, %ecx                   ## imm = 0xFFFF0510
+	leal	-65375(%rax), %ecx
+	cmpl	$-65374, %ecx                   ## imm = 0xFFFF00A2
 	jbe	LBB9_26
 ## %bb.19:                              ##   in Loop: Header=BB9_18 Depth=1
-	movl	$1024, %r13d                    ## imm = 0x400
-	cmpq	$1023, %r15                     ## imm = 0x3FF
+	movl	$8192, %r13d                    ## imm = 0x2000
+	cmpq	$8191, %r15                     ## imm = 0x1FFF
 	ja	LBB9_22
 ## %bb.20:                              ##   in Loop: Header=BB9_18 Depth=1
 	movq	%r15, %r13
@@ -6527,7 +6527,7 @@ _validate_image_layout:                 ## @validate_image_layout
 ## %bb.0:
 	pushq	%rbp
 	movq	%rsp, %rbp
-	cmpq	$67108864, 8(%rdi)              ## imm = 0x4000000
+	cmpq	$536870912, 8(%rdi)             ## imm = 0x20000000
 	jne	LBB10_1
 ## %bb.3:
 	movq	(%rdi), %rax
@@ -6537,7 +6537,7 @@ _validate_image_layout:                 ## @validate_image_layout
 	cmpl	$2048, 454(%rax)                ## imm = 0x800
 	jne	LBB10_7
 ## %bb.6:
-	cmpl	$129024, 458(%rax)              ## imm = 0x1F800
+	cmpl	$1046528, 458(%rax)             ## imm = 0xFF800
 	jne	LBB10_7
 ## %bb.8:
 	cmpw	$-21931, 1049086(%rax)          ## imm = 0xAA55
@@ -6546,7 +6546,7 @@ _validate_image_layout:                 ## @validate_image_layout
 	cmpw	$512, 1048587(%rax)             ## imm = 0x200
 	jne	LBB10_11
 ## %bb.12:
-	cmpb	$2, 1048589(%rax)
+	cmpb	$16, 1048589(%rax)
 	jne	LBB10_13
 ## %bb.14:
 	popq	%rbp
@@ -7443,16 +7443,16 @@ _read_root_file_blob:                   ## @read_root_file_blob
 	je	LBB14_9
 ## %bb.2:
 	movl	8(%r13), %ebx
-	leal	-64241(%rbx), %eax
-	cmpl	$-64239, %eax                   ## imm = 0xFFFF0511
+	leal	-65375(%rbx), %eax
+	cmpl	$-65373, %eax                   ## imm = 0xFFFF00A3
 	jb	LBB14_11
 ## %bb.3:
-	movl	$64241, %r15d                   ## imm = 0xFAF1
+	movl	$65375, %r15d                   ## imm = 0xFF5F
 	xorl	%r12d, %r12d
 	.p2align	4
 LBB14_4:                                ## =>This Inner Loop Header: Depth=1
-	leal	-64241(%rbx), %eax
-	cmpl	$-64239, %eax                   ## imm = 0xFFFF0511
+	leal	-65375(%rbx), %eax
+	cmpl	$-65373, %eax                   ## imm = 0xFFFF00A3
 	jb	LBB14_12
 ## %bb.5:                               ##   in Loop: Header=BB14_4 Depth=1
 	decl	%r15d
@@ -7462,15 +7462,15 @@ LBB14_4:                                ## =>This Inner Loop Header: Depth=1
 	movq	(%rax), %r14
 	movq	-56(%rbp), %r13                 ## 8-byte Reload
 	subq	%r12, %r13
-	cmpq	$1024, %r13                     ## imm = 0x400
-	movl	$1024, %eax                     ## imm = 0x400
+	cmpq	$8192, %r13                     ## imm = 0x2000
+	movl	$8192, %eax                     ## imm = 0x2000
 	cmovaeq	%rax, %r13
 	movq	-64(%rbp), %rax                 ## 8-byte Reload
 	leaq	(%rax,%r12), %rdi
 	movl	%ebx, %eax
-	shll	$10, %eax
+	shll	$13, %eax
 	leaq	(%r14,%rax), %rsi
-	addq	$1325568, %rsi                  ## imm = 0x143A00
+	addq	$1311232, %rsi                  ## imm = 0x140200
 	movq	%r13, %rdx
 	callq	_memcpy
 	addq	%r13, %r12
@@ -8174,8 +8174,8 @@ _inspect_directory:                     ## @inspect_directory
 	movl	%ecx, -228(%rbp)                ## 4-byte Spill
 	testl	%ecx, %ecx
 	sete	%al
-	leal	-64241(%rdx), %ecx
-	cmpl	$-64239, %ecx                   ## imm = 0xFFFF0511
+	leal	-65375(%rdx), %ecx
+	cmpl	$-65373, %ecx                   ## imm = 0xFFFF00A3
 	setb	%cl
 	orb	%al, %cl
 	je	LBB20_1
@@ -8196,9 +8196,9 @@ LBB20_9:
 LBB20_1:
 	movq	-240(%rbp), %rax                ## 8-byte Reload
 	movq	(%rax), %rax
-	shll	$10, %edx
+	shll	$13, %edx
 	leaq	(%rax,%rdx), %rbx
-	addq	$1325568, %rbx                  ## imm = 0x143A00
+	addq	$1311232, %rbx                  ## imm = 0x140200
 	decl	-228(%rbp)                      ## 4-byte Folded Spill
 	leaq	-61(%rbp), %r12
 	leaq	-224(%rbp), %r13
@@ -8207,7 +8207,7 @@ LBB20_1:
 	.p2align	4
 LBB20_8:                                ##   in Loop: Header=BB20_2 Depth=1
 	addq	$32, %r14
-	cmpq	$1024, %r14                     ## imm = 0x400
+	cmpq	$8192, %r14                     ## imm = 0x2000
 	je	LBB20_9
 LBB20_2:                                ## =>This Inner Loop Header: Depth=1
 	movzbl	(%rbx,%r14), %eax
@@ -11450,7 +11450,7 @@ _inspect_find_path:                     ## @inspect_find_path
 	movq	%rax, -48(%rbp)
 	movq	(%rdi), %rax
 	leaq	1311232(%rax), %r8
-	addq	$1325568, %rax                  ## imm = 0x143A00
+	addq	$1311232, %rax                  ## imm = 0x140200
 	movl	$16352, %ebx                    ## imm = 0x3FE0
 	movq	%rsi, %r14
 	jmp	LBB22_1
@@ -11611,14 +11611,14 @@ LBB22_35:                               ##   Parent Loop BB22_1 Depth=1
 	je	LBB22_31
 ## %bb.40:                              ##   in Loop: Header=BB22_1 Depth=1
 	movl	%r8d, %eax
-	addl	$-64241, %eax                   ## imm = 0xFFFF050F
-	cmpl	$-64240, %eax                   ## imm = 0xFFFF0510
+	addl	$-65375, %eax                   ## imm = 0xFFFF00A1
+	cmpl	$-65374, %eax                   ## imm = 0xFFFF00A2
 	jbe	LBB22_45
 ## %bb.41:                              ##   in Loop: Header=BB22_1 Depth=1
-	shll	$10, %r8d
+	shll	$13, %r8d
 	movq	-144(%rbp), %rax                ## 8-byte Reload
 	addq	%rax, %r8
-	movl	$992, %ebx                      ## imm = 0x3E0
+	movl	$8160, %ebx                     ## imm = 0x1FE0
 	movq	-136(%rbp), %rsi                ## 8-byte Reload
 	jmp	LBB22_1
 LBB22_31:
@@ -11685,16 +11685,16 @@ _inspect_read_file_blob:                ## @inspect_read_file_blob
 	jne	LBB23_12
 ## %bb.3:
 	movl	8(%r13), %ebx
-	leal	-64241(%rbx), %eax
-	cmpl	$-64239, %eax                   ## imm = 0xFFFF0511
+	leal	-65375(%rbx), %eax
+	cmpl	$-65373, %eax                   ## imm = 0xFFFF00A3
 	jb	LBB23_13
 ## %bb.4:
-	movl	$64241, %r15d                   ## imm = 0xFAF1
+	movl	$65375, %r15d                   ## imm = 0xFF5F
 	xorl	%r12d, %r12d
 	.p2align	4
 LBB23_5:                                ## =>This Inner Loop Header: Depth=1
-	leal	-64241(%rbx), %eax
-	cmpl	$-64239, %eax                   ## imm = 0xFFFF0511
+	leal	-65375(%rbx), %eax
+	cmpl	$-65373, %eax                   ## imm = 0xFFFF00A3
 	jb	LBB23_14
 ## %bb.6:                               ##   in Loop: Header=BB23_5 Depth=1
 	decl	%r15d
@@ -11704,15 +11704,15 @@ LBB23_5:                                ## =>This Inner Loop Header: Depth=1
 	movq	(%rax), %r14
 	movq	-56(%rbp), %r13                 ## 8-byte Reload
 	subq	%r12, %r13
-	cmpq	$1024, %r13                     ## imm = 0x400
-	movl	$1024, %eax                     ## imm = 0x400
+	cmpq	$8192, %r13                     ## imm = 0x2000
+	movl	$8192, %eax                     ## imm = 0x2000
 	cmovaeq	%rax, %r13
 	movq	-64(%rbp), %rax                 ## 8-byte Reload
 	leaq	(%rax,%r12), %rdi
 	movl	%ebx, %eax
-	shll	$10, %eax
+	shll	$13, %eax
 	leaq	(%r14,%rax), %rsi
-	addq	$1325568, %rsi                  ## imm = 0x143A00
+	addq	$1311232, %rsi                  ## imm = 0x140200
 	movq	%r13, %rdx
 	callq	_memcpy
 	addq	%r13, %r12
@@ -13357,7 +13357,7 @@ _install_bootable_layout.cold.2:        ## @install_bootable_layout.cold.2
 	movq	(%rax), %rdi
 	leaq	L_.str.316(%rip), %rsi
 	leaq	L_.str.314(%rip), %rdx
-	movl	$163840, %r8d                   ## imm = 0x28000
+	movl	$229888, %r8d                   ## imm = 0x38200
 	xorl	%eax, %eax
 	callq	_fprintf
 	pushq	$1

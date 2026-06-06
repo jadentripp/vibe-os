@@ -1,0 +1,4 @@
+tests/linux/hello_glibc.c
+tests/linux/libc_probe.c
+tests/linux/hello_musl.c
+tests/linux/linux_doom_headless.c

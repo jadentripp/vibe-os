@@ -19,12 +19,15 @@ SMOKE_EXPECT_GUEST_EXIT="${SMOKE_EXPECT_GUEST_EXIT:-0}"
 SMOKE_GUEST_EXIT_KEYS="${SMOKE_GUEST_EXIT_KEYS:-}"
 SMOKE_NO_REBOOT="${SMOKE_NO_REBOOT:-1}"
 SMOKE_NO_SHUTDOWN="${SMOKE_NO_SHUTDOWN:-1}"
+SMOKE_STATUS_ADDR="${SMOKE_STATUS_ADDR:-0x77000}"
+SMOKE_STATUS_BYTES="${SMOKE_STATUS_BYTES:-32768}"
 
 monitor_sock="$BUILD_DIR/monitor.sock"
 smoke_log="$BUILD_DIR/smoke.log"
 monitor_log="$BUILD_DIR/monitor.log"
 qemu_log="$BUILD_DIR/qemu.log"
 serial_log="$BUILD_DIR/serial.log"
+qemu_pid_file="$BUILD_DIR/qemu.pid"
 qemu_pid=""
 qemu_extra_args=()
 qemu_control_args=()
@@ -32,10 +35,48 @@ qemu_cmd=()
 deadline=0
 failing=0
 
+log() {
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" | tee -a "$smoke_log"
+}
+
+cleanup_stale_qemu() {
+  local pid
+  local command
+
+  [ -f "$qemu_pid_file" ] || return 0
+  IFS= read -r pid < "$qemu_pid_file" || return 0
+  case "$pid" in
+    ""|*[!0-9]*)
+      log "Ignoring stale QEMU pid file with non-numeric pid: $pid"
+      return 0
+      ;;
+  esac
+  kill -0 "$pid" 2>/dev/null || return 0
+
+  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$command" in
+    *"$monitor_sock"*|*"file=$IMAGE,"*)
+      ;;
+    *)
+      log "Ignoring live pid $pid from $qemu_pid_file; command does not match this smoke image or monitor."
+      return 0
+      ;;
+  esac
+
+  log "Cleaning up stale QEMU process $pid from previous smoke."
+  kill "$pid" 2>/dev/null || true
+  sleep 1
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+}
+
 mkdir -p "$BUILD_DIR"
+rm -f "$smoke_log"
+cleanup_stale_qemu
 rm -f \
   "$monitor_sock" \
-  "$BUILD_DIR"/qemu.pid \
+  "$qemu_pid_file" \
   "$BUILD_DIR"/vga.bin \
   "$BUILD_DIR"/vga.*.bin \
   "$BUILD_DIR"/vga.txt \
@@ -45,14 +86,9 @@ rm -f \
   "$BUILD_DIR"/status.txt \
   "$BUILD_DIR"/status.*.txt \
   "$BUILD_DIR"/gfx.bin \
-  "$smoke_log" \
   "$monitor_log" \
   "$qemu_log" \
   "$serial_log"
-
-log() {
-  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" | tee -a "$smoke_log"
-}
 
 now_s() {
   date +%s
@@ -218,7 +254,7 @@ capture_snapshot() {
   vga_bin="$BUILD_DIR/vga$suffix.bin"
   vga_txt="$BUILD_DIR/vga$suffix.txt"
 
-  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave 0x40000 131072 $status_bin\n"
+  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave $SMOKE_STATUS_ADDR $SMOKE_STATUS_BYTES $status_bin\n"
   if [ "$label" = "final" ] && [ "$SMOKE_CAPTURE_GFX" = "1" ]; then
     commands="${commands}pmemsave 0xa0000 64000 $BUILD_DIR/gfx.bin\n"
   fi
@@ -445,7 +481,7 @@ wait_status_action() {
 
   while :; do
     rm -f "$status_bin" "$status_txt"
-    send_monitor "$mode $field=$expected" "pmemsave 0x40000 131072 $status_bin\n" || fail_smoke "failed to capture status for $mode action in phase $label"
+    send_monitor "$mode $field=$expected" "pmemsave $SMOKE_STATUS_ADDR $SMOKE_STATUS_BYTES $status_bin\n" || fail_smoke "failed to capture status for $mode action in phase $label"
     decode_status "$status_bin" "$status_txt"
     if [ "$mode" = "wait-status-min" ]; then
       if status_field_hex_at_least "$status_txt" "$field" "$expected"; then
@@ -511,7 +547,7 @@ wait_status_part_min_action() {
 
   while :; do
     rm -f "$status_bin" "$status_txt"
-    send_monitor "wait-status-part-min $field[$part]=$expected" "pmemsave 0x40000 131072 $status_bin\n" || fail_smoke "failed to capture status for wait-status-part-min action in phase $label"
+    send_monitor "wait-status-part-min $field[$part]=$expected" "pmemsave $SMOKE_STATUS_ADDR $SMOKE_STATUS_BYTES $status_bin\n" || fail_smoke "failed to capture status for wait-status-part-min action in phase $label"
     decode_status "$status_bin" "$status_txt"
     if status_field_hex_part_at_least "$status_txt" "$field" "$part" "$expected"; then
       log "Observed status field $field part $part >= 0x$expected for phase $label."
@@ -700,7 +736,7 @@ if [ "${#qemu_extra_args[@]}" -gt 0 ]; then
 fi
 "${qemu_cmd[@]}" > "$qemu_log" 2>&1 &
 qemu_pid=$!
-printf '%s\n' "$qemu_pid" > "$BUILD_DIR/qemu.pid"
+printf '%s\n' "$qemu_pid" > "$qemu_pid_file"
 log "QEMU pid is $qemu_pid."
 
 wait_for_monitor
