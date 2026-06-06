@@ -12466,6 +12466,8 @@ storage_init:
     mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
     mov dword [linux_clone_last_mode], 0
+    mov dword [linux_clone_last_stack_base], 0
+    mov dword [linux_clone_last_stack_size], 0
     mov dword [syscall_abi_version_seen], VIBE_USER_ABI_VERSION
     mov dword [syscall_trap_vector_seen], SYSCALL_TRAP_VECTOR
     mov dword [syscall_max_args_seen], SYSCALL_MAX_ARGS
@@ -22363,6 +22365,48 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_rseq
 
+%ifdef LINUX_M1_WRITEV_SMOKE
+    mov edi, exec_path_linux_writev
+    call kernel_streq
+    cmp al, 1
+    je .linux_writev_probe
+%endif
+
+%ifdef LINUX_M1_EVENTFD_SMOKE
+    mov edi, exec_path_linux_eventfd
+    call kernel_streq
+    cmp al, 1
+    je .linux_eventfd_probe
+%endif
+
+%ifdef LINUX_M1_EPOLL_SMOKE
+    mov edi, exec_path_linux_epoll
+    call kernel_streq
+    cmp al, 1
+    je .linux_epoll_probe
+%endif
+
+%ifdef LINUX_M1_TIMERFD_SMOKE
+    mov edi, exec_path_linux_timerfd
+    call kernel_streq
+    cmp al, 1
+    je .linux_timerfd_probe
+%endif
+
+%ifdef LINUX_M1_FUTEX_SMOKE
+    mov edi, exec_path_linux_futex
+    call kernel_streq
+    cmp al, 1
+    je .linux_futex_probe
+%endif
+
+%ifdef LINUX_M1_THREAD_SMOKE
+    mov edi, exec_path_linux_thread
+    call kernel_streq
+    cmp al, 1
+    je .linux_thread_probe
+%endif
+
 %ifdef LINUX_M1_CLONE3_SMOKE
     mov edi, exec_path_linux_clone3
     call kernel_streq
@@ -22633,6 +22677,60 @@ process_exec_resolve_app_path:
     mov ebx, esi
     mov esi, linux_rseq_elf_name_83
     jmp .linux_bin_app
+
+%ifdef LINUX_M1_WRITEV_SMOKE
+.linux_writev_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_writev_elf_name_83
+    jmp .linux_bin_app
+%endif
+
+%ifdef LINUX_M1_EVENTFD_SMOKE
+.linux_eventfd_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_eventfd_elf_name_83
+    jmp .linux_bin_app
+%endif
+
+%ifdef LINUX_M1_EPOLL_SMOKE
+.linux_epoll_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_epoll_elf_name_83
+    jmp .linux_bin_app
+%endif
+
+%ifdef LINUX_M1_TIMERFD_SMOKE
+.linux_timerfd_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_timerfd_elf_name_83
+    jmp .linux_bin_app
+%endif
+
+%ifdef LINUX_M1_FUTEX_SMOKE
+.linux_futex_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_futex_elf_name_83
+    jmp .linux_bin_app
+%endif
+
+%ifdef LINUX_M1_THREAD_SMOKE
+.linux_thread_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_thread_elf_name_83
+    jmp .linux_bin_app
+%endif
 
 %ifdef LINUX_M1_CLONE3_SMOKE
 .linux_clone3_probe:
@@ -25073,6 +25171,24 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_TIME_SMOKE
     mov esi, exec_path_linux_time
 %endif
+%ifdef LINUX_M1_WRITEV_SMOKE
+    mov esi, exec_path_linux_writev
+%endif
+%ifdef LINUX_M1_EVENTFD_SMOKE
+    mov esi, exec_path_linux_eventfd
+%endif
+%ifdef LINUX_M1_EPOLL_SMOKE
+    mov esi, exec_path_linux_epoll
+%endif
+%ifdef LINUX_M1_TIMERFD_SMOKE
+    mov esi, exec_path_linux_timerfd
+%endif
+%ifdef LINUX_M1_FUTEX_SMOKE
+    mov esi, exec_path_linux_futex
+%endif
+%ifdef LINUX_M1_THREAD_SMOKE
+    mov esi, exec_path_linux_thread
+%endif
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -25211,6 +25327,24 @@ linux_m1_smoke_launch:
 %endif
 %ifdef LINUX_M1_TIME_SMOKE
     mov esi, exec_path_linux_time
+%endif
+%ifdef LINUX_M1_WRITEV_SMOKE
+    mov esi, exec_path_linux_writev
+%endif
+%ifdef LINUX_M1_EVENTFD_SMOKE
+    mov esi, exec_path_linux_eventfd
+%endif
+%ifdef LINUX_M1_EPOLL_SMOKE
+    mov esi, exec_path_linux_epoll
+%endif
+%ifdef LINUX_M1_TIMERFD_SMOKE
+    mov esi, exec_path_linux_timerfd
+%endif
+%ifdef LINUX_M1_FUTEX_SMOKE
+    mov esi, exec_path_linux_futex
+%endif
+%ifdef LINUX_M1_THREAD_SMOKE
+    mov esi, exec_path_linux_thread
 %endif
 %ifdef LINUX_M1_CHROMIUM_SMOKE
     call linux_m1_smoke_stage_chromium
@@ -25351,6 +25485,9 @@ linux_m1_smoke_stage_chromium:
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, chromium_arg_disable_background_networking
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, chromium_arg_disable_breakpad
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, chromium_arg_user_data_dir
@@ -36870,6 +37007,8 @@ syscall_handler:
     jmp .waitpid
 
 .linux_clone3:
+    mov dword [linux_clone_last_stack_base], 0
+    mov dword [linux_clone_last_stack_size], 0
     cmp ecx, LINUX_CLONE_ARGS_SIZE_VER2
     jne .bad_syscall_einval
     mov eax, ebx
@@ -36922,6 +37061,8 @@ syscall_handler:
     call user_range_validate
     pop eax
     jc .linux_clone_efault
+    mov [linux_clone_last_stack_base], ecx
+    mov [linux_clone_last_stack_size], esi
     add ecx, esi
     jc .bad_syscall_einval
 
@@ -36948,6 +37089,12 @@ syscall_handler:
     mov dword [linux_clone_last_tls_base], 0
     mov dword [linux_clone_last_result], 0
     mov dword [linux_clone_last_mode], 0
+    cmp dword [current_syscall_number], LINUX_SYS_CLONE3
+    je .linux_clone_stack_range_ready
+    mov dword [linux_clone_last_stack_base], 0
+    mov dword [linux_clone_last_stack_size], 0
+
+.linux_clone_stack_range_ready:
 
     mov eax, ebx
     and eax, 0x000000ff
@@ -37036,10 +37183,19 @@ syscall_handler:
     mov [esi + PROC_SAVED_ESP], eax
     cmp dword [linux_clone_last_mode], 2
     jne .linux_clone_child_stack_done
+    cmp dword [linux_clone_last_stack_base], 0
+    jne .linux_clone_child_stack_range_bounds
     cmp eax, [esi + PROC_STACK_BOTTOM]
     jbe .linux_clone_child_stack_heap_bounds
     cmp eax, [esi + PROC_STACK_TOP]
     jbe .linux_clone_child_stack_done
+    jmp .linux_clone_child_stack_heap_bounds
+
+.linux_clone_child_stack_range_bounds:
+    mov edx, [linux_clone_last_stack_base]
+    mov [esi + PROC_STACK_BOTTOM], edx
+    mov [esi + PROC_STACK_TOP], eax
+    jmp .linux_clone_child_stack_done
 
 .linux_clone_child_stack_heap_bounds:
     mov edx, [esi + PROC_HEAP_START]
@@ -48135,6 +48291,24 @@ linux_pipe_elf_name_83 db "PIPE    ELF"
 linux_fork_elf_name_83 db "FORK    ELF"
 linux_time_elf_name_83 db "TIME    ELF"
 linux_rseq_elf_name_83 db "RSEQ    ELF"
+%ifdef LINUX_M1_WRITEV_SMOKE
+linux_writev_elf_name_83 db "WRITEV  ELF"
+%endif
+%ifdef LINUX_M1_EVENTFD_SMOKE
+linux_eventfd_elf_name_83 db "EVENTFD ELF"
+%endif
+%ifdef LINUX_M1_EPOLL_SMOKE
+linux_epoll_elf_name_83 db "EPOLL   ELF"
+%endif
+%ifdef LINUX_M1_TIMERFD_SMOKE
+linux_timerfd_elf_name_83 db "TIMERFD ELF"
+%endif
+%ifdef LINUX_M1_FUTEX_SMOKE
+linux_futex_elf_name_83 db "FUTEX   ELF"
+%endif
+%ifdef LINUX_M1_THREAD_SMOKE
+linux_thread_elf_name_83 db "THREAD  ELF"
+%endif
 %ifdef LINUX_M1_CLONE3_SMOKE
 linux_clone3_elf_name_83 db "CLONE3  ELF"
 %endif
@@ -48189,6 +48363,24 @@ exec_path_linux_pipe db "/BIN/PIPE.ELF", 0
 exec_path_linux_fork db "/BIN/FORK.ELF", 0
 exec_path_linux_time db "/BIN/TIME.ELF", 0
 exec_path_linux_rseq db "/BIN/RSEQ.ELF", 0
+%ifdef LINUX_M1_WRITEV_SMOKE
+exec_path_linux_writev db "/BIN/WRITEV.ELF", 0
+%endif
+%ifdef LINUX_M1_EVENTFD_SMOKE
+exec_path_linux_eventfd db "/BIN/EVENTFD.ELF", 0
+%endif
+%ifdef LINUX_M1_EPOLL_SMOKE
+exec_path_linux_epoll db "/BIN/EPOLL.ELF", 0
+%endif
+%ifdef LINUX_M1_TIMERFD_SMOKE
+exec_path_linux_timerfd db "/BIN/TIMERFD.ELF", 0
+%endif
+%ifdef LINUX_M1_FUTEX_SMOKE
+exec_path_linux_futex db "/BIN/FUTEX.ELF", 0
+%endif
+%ifdef LINUX_M1_THREAD_SMOKE
+exec_path_linux_thread db "/BIN/THREAD.ELF", 0
+%endif
 %ifdef LINUX_M1_CLONE3_SMOKE
 exec_path_linux_clone3 db "/BIN/CLONE3.ELF", 0
 %endif
@@ -48595,6 +48787,7 @@ chromium_arg_headless db "--headless", 0
 chromium_arg_disable_dev_shm db "--disable-dev-shm-usage", 0
 chromium_arg_no_first_run db "--no-first-run", 0
 chromium_arg_disable_background_networking db "--disable-background-networking", 0
+chromium_arg_disable_breakpad db "--disable-breakpad", 0
 chromium_arg_user_data_dir db "--user-data-dir=/tmp/chromium-profile", 0
 chromium_arg_about_blank db "about:blank", 0
 %endif
@@ -50089,6 +50282,8 @@ linux_clone_last_ctid dd 0
 linux_clone_last_tls_base dd 0
 linux_clone_last_result dd 0
 linux_clone_last_mode dd 0
+linux_clone_last_stack_base dd 0
+linux_clone_last_stack_size dd 0
 linux_path_last_nr dd 0
 linux_path_last_ret dd 0
 linux_path_last_ptr dd 0

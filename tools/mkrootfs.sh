@@ -45,6 +45,11 @@ esac
 # 1. Build the repo linker, then the Linux test binaries.
 make build/link_elf32
 make -C tests/linux
+if command -v "${ZIG:-zig}" >/dev/null 2>&1; then
+    make -C tests/linux real-libc
+else
+    echo "warning: zig not found; skipping generated musl/glibc Linux probes" >&2
+fi
 
 find_glibc_lib_pair() {
     if [ -n "${VIBE_GLIBC_LIB_DIR:-}" ]; then
@@ -102,9 +107,15 @@ if [ -f tests/linux/linux_doom ]; then
     DEPS="$DEPS tests/linux/linux_doom"
 fi
 
-if [ -f tests/linux/hello_glibc ]; then
-    ASSETS="$ASSETS --asset /BIN/GLIBC.ELF=tests/linux/hello_glibc"
-    DEPS="$DEPS tests/linux/hello_glibc"
+GLIBC_TEST=${VIBE_GLIBC_TEST:-tests/linux/hello_glibc}
+if [ -n "${VIBE_GLIBC_TEST:-}" ] && [ ! -f "$GLIBC_TEST" ]; then
+    echo "error: VIBE_GLIBC_TEST does not exist: $GLIBC_TEST" >&2
+    exit 1
+fi
+
+if [ -f "$GLIBC_TEST" ]; then
+    ASSETS="$ASSETS --asset /BIN/GLIBC.ELF=$GLIBC_TEST"
+    DEPS="$DEPS $GLIBC_TEST"
     if GLIBC_LIB_PAIR=$(find_glibc_lib_pair); then
         set -- $GLIBC_LIB_PAIR
         GLIBC_LDSO=$1

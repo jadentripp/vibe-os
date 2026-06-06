@@ -29,6 +29,7 @@ writev_probe
 eventfd_probe
 epoll_probe
 timerfd_probe
+time_probe
 futex_probe
 thread_probe
 rseq_probe
