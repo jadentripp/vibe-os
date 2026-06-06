@@ -11,12 +11,14 @@ vfork_child_probe
 vfork_exit_group_probe
 vfork_exit_group_child
 dir_probe
+cwd_dirfd_probe
 fd_probe
 dev_null_probe
 llseek_probe
 mmap_large_probe
 mmap_many_probe
 pipe_probe
+stdio_dup_probe
 fork_probe
 clone3_probe
 proc_self_exe_probe

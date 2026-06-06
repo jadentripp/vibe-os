@@ -657,7 +657,11 @@ PROCESS_VFORK_EXEC_RELEASE_SHARED_VM equ 1
 PROCESS_VFORK_EXEC_RELEASE_PARENT_MISSING equ 2
 PROCESS_VFORK_EXEC_RELEASE_PARENT_NOT_BLOCKED equ 3
 PROCESS_VFORK_EXEC_RELEASE_OBJECT_MISMATCH equ 4
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+PROCESS_RECORD_BYTES equ 264
+%else
 PROCESS_RECORD_BYTES equ 248
+%endif
 PERSONALITY_NATIVE equ 0
 PERSONALITY_LINUX equ 1
 PROCESS_EXEC_TABLE_COUNT equ 2
@@ -734,6 +738,10 @@ PROC_LINUX_SIGACTION_FLAGS equ 232
 PROC_LINUX_SIGACTION_RESTORER equ 236
 PROC_LINUX_SIGACTION_MASK_LO equ 240
 PROC_LINUX_SIGACTION_MASK_HI equ 244
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+PROC_LINUX_CWD_CLUSTER equ 248       ; 0=root, otherwise FAT first cluster
+PROC_LINUX_CWD_NAME83 equ 252        ; one-level FAT cwd name, padded 8.3
+%endif
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 PROC_FLAG_SHARED_VM equ 0x2
 PROC_FLAGS_TRANSIENT_MASK equ PROC_FLAG_IRQ_FRAME_VALID | PROC_FLAG_SHARED_VM
@@ -15021,7 +15029,7 @@ fat_parse_user_root83:
     mov [fat_open_base_len], al
     mov [fat_open_ext_len], al
     mov [fat_open_dot_seen], al
-    mov ecx, 12
+    mov ecx, 14
 
 .skip_prefix:
     mov eax, esi
@@ -17382,6 +17390,23 @@ fat_user_path_is_root:
 .slash:
     cmp byte [esi + 1], 0
     je .ok
+    cmp byte [esi + 1], '.'
+    jne .fail
+    cmp byte [esi + 2], 0
+    je .ok
+    cmp byte [esi + 2], '/'
+    je .slash_dot_slash
+    cmp byte [esi + 2], 0x5c
+    je .slash_dot_slash
+    cmp byte [esi + 2], '.'
+    jne .fail
+    cmp byte [esi + 3], 0
+    je .ok
+    jmp .fail
+
+.slash_dot_slash:
+    cmp byte [esi + 3], 0
+    je .ok
     jmp .fail
 
 .ok:
@@ -19044,6 +19069,13 @@ process_reset_accounting:
     mov ecx, 16
     rep stosd
     mov dword [esi + PROC_LINUX_TLS_BASE], 0
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov dword [esi + PROC_LINUX_CWD_CLUSTER], 0
+    lea edi, [esi + PROC_LINUX_CWD_NAME83]
+    xor eax, eax
+    mov ecx, 3
+    rep stosd
+%endif
     pop edi
     pop ecx
     pop eax
@@ -19977,6 +20009,19 @@ process_fork_copy_metadata:
     mov [edi + PROC_LINUX_SIGACTION_MASK_LO], eax
     mov eax, [esi + PROC_LINUX_SIGACTION_MASK_HI]
     mov [edi + PROC_LINUX_SIGACTION_MASK_HI], eax
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov eax, [esi + PROC_LINUX_CWD_CLUSTER]
+    mov [edi + PROC_LINUX_CWD_CLUSTER], eax
+    push esi
+    push edi
+    lea esi, [esi + PROC_LINUX_CWD_NAME83]
+    lea edi, [edi + PROC_LINUX_CWD_NAME83]
+    mov ecx, 3
+    cld
+    rep movsd
+    pop edi
+    pop esi
+%endif
     mov dword [edi + PROC_EXIT_STATUS], 0
     push esi
     push edi
@@ -22350,6 +22395,13 @@ process_exec_resolve_app_path:
     cmp al, 1
     je .linux_dir
 
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov edi, exec_path_linux_cwd_dirfd
+    call kernel_streq
+    cmp al, 1
+    je .linux_cwd_dirfd
+%endif
+
     mov edi, exec_path_linux_fd
     call kernel_streq
     cmp al, 1
@@ -22644,6 +22696,15 @@ process_exec_resolve_app_path:
     mov ebx, esi
     mov esi, linux_dir_elf_name_83
     jmp .linux_bin_app
+
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+.linux_cwd_dirfd:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, linux_cwd_dirfd_elf_name_83
+    jmp .linux_bin_app
+%endif
 
 .linux_fd:
     call process_alloc_generic_exec_slot
@@ -25123,6 +25184,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_DIR_SMOKE
     mov esi, exec_path_linux_dir
 %else
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov esi, exec_path_linux_cwd_dirfd
+%else
 %ifdef LINUX_M1_EXEC_LIMITS_SMOKE
     mov esi, exec_path_linux_exec_limits
 %else
@@ -25156,10 +25220,14 @@ linux_m1_smoke_launch:
 %endif
 %endif
 %endif
+%endif
 %ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
     mov esi, exec_path_linux_proc_self_exe
 %endif
 %ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
     mov esi, exec_path_linux_busybox
 %endif
 %ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
@@ -25299,6 +25367,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_DIR_SMOKE
     mov esi, exec_path_linux_dir
 %else
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov esi, exec_path_linux_cwd_dirfd
+%else
 %ifdef LINUX_M1_EXEC_LIMITS_SMOKE
     mov esi, exec_path_linux_exec_limits
 %else
@@ -25331,10 +25402,14 @@ linux_m1_smoke_launch:
 %endif
 %endif
 %endif
+%endif
 %ifdef LINUX_M1_PROC_SELF_EXE_SMOKE
     mov esi, exec_path_linux_proc_self_exe
 %endif
 %ifdef LINUX_M1_BUSYBOX_LS_SMOKE
+    mov esi, exec_path_linux_busybox
+%endif
+%ifdef LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
     mov esi, exec_path_linux_busybox
 %endif
 %ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
@@ -25421,6 +25496,9 @@ linux_m1_smoke_launch:
 %ifdef LINUX_M1_BUSYBOX_LS_SMOKE
     call linux_m1_smoke_stage_busybox_ls
 %else
+%ifdef LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
+    call linux_m1_smoke_stage_busybox_ls_root
+%else
 %ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
     call linux_m1_smoke_stage_busybox_cat
 %else
@@ -25449,6 +25527,7 @@ linux_m1_smoke_launch:
     call linux_m1_smoke_stage_ld_debug
 %else
     call sys_exec_stage_kernel_arg
+%endif
 %endif
 %endif
 %endif
@@ -25712,6 +25791,22 @@ linux_m1_smoke_stage_busybox_ls:
     call sys_exec_stage_kernel_arg_append
     jc .done
     mov esi, busybox_arg_bin_dir
+    call sys_exec_stage_kernel_arg_append
+
+.done:
+    ret
+%endif
+%ifdef LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
+linux_m1_smoke_stage_busybox_ls_root:
+    call sys_exec_clear_args
+    jc .done
+    mov esi, busybox_arg_argv0
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_ls_root
+    call sys_exec_stage_kernel_arg_append
+    jc .done
+    mov esi, busybox_arg_root_dir
     call sys_exec_stage_kernel_arg_append
 
 .done:
@@ -26737,6 +26832,7 @@ LINUX_SYS_OPEN equ 5
 LINUX_SYS_CLOSE equ 6
 LINUX_SYS_WAITPID equ 7
 LINUX_SYS_EXECVE equ 11
+LINUX_SYS_CHDIR equ 12
 LINUX_SYS_TIME equ 13
 LINUX_SYS_LSEEK equ 19
 LINUX_SYS_GETPID equ 20
@@ -26755,6 +26851,7 @@ LINUX_SYS_GETRLIMIT equ 76
 LINUX_SYS_DUP2 equ 63
 LINUX_SYS_GETPPID equ 64
 LINUX_SYS_GETPGID equ 132
+LINUX_SYS_FCHDIR equ 133
 LINUX_SYS_GETSID equ 147
 LINUX_SYS_SETSID equ 66
 LINUX_SYS_GETTIMEOFDAY equ 78
@@ -29351,6 +29448,337 @@ linux_sys_gettimeofday:
     mov eax, -ERRNO_EFAULT
     ret
 
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+linux_find_relative_fat_entry:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov dword [linux_relative_fat_dir_missing], 0
+    mov eax, [syscall_ptr_arg]
+    cmp eax, 0
+    je .fail
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
+    cmp byte [eax], 0
+    je .fail
+    cmp byte [eax], '/'
+    je .fail
+    cmp byte [eax], 0x5c
+    je .fail
+    cmp dword [linux_relative_fat_dir_valid], 0
+    je .use_cwd
+    mov eax, [linux_relative_fat_dir_arg]
+    jmp .cluster_ready
+
+.use_cwd:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .fail
+    cmp dword [esi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .fail
+    mov eax, [esi + PROC_LINUX_CWD_CLUSTER]
+
+.cluster_ready:
+    cmp eax, 2
+    jb .fail
+    mov [linux_relative_fat_dir_arg], eax
+    mov dword [linux_relative_fat_dir_missing], 1
+    call fat_parse_user_root83
+    jc .fail
+    mov ax, [linux_relative_fat_dir_arg]
+    mov edi, fat_open_name_buffer
+    call fat_find_subdir_entry
+    jc .fail
+    mov dword [linux_relative_fat_dir_missing], 0
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    mov dword [linux_relative_fat_dir_valid], 0
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_copy_open_name_to_cwd:
+    push ecx
+    push esi
+    push edi
+    mov esi, fat_open_name_buffer
+    mov edi, [current_process_ptr]
+    lea edi, [edi + PROC_LINUX_CWD_NAME83]
+    mov ecx, 11
+    cld
+    rep movsb
+    mov byte [edi], 0
+    pop edi
+    pop esi
+    pop ecx
+    ret
+
+linux_clear_cwd_name:
+    push eax
+    push ecx
+    push edi
+    mov edi, [current_process_ptr]
+    lea edi, [edi + PROC_LINUX_CWD_NAME83]
+    xor eax, eax
+    mov ecx, 3
+    cld
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+linux_sys_chdir:
+    cmp ebx, 0
+    je .efault
+    mov [syscall_ptr_arg], ebx
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .einval
+    cmp dword [esi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .einval
+    call fat_user_path_is_root
+    jnc .root
+    call fat_parse_user_root83
+    jc .enoent
+    mov edi, fat_open_name_buffer
+    call fat_find_root_entry_any
+    jc .enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .enotdir
+    movzx eax, word [fat_found_first_cluster]
+    cmp eax, 2
+    jb .eio
+    mov esi, [current_process_ptr]
+    mov [esi + PROC_LINUX_CWD_CLUSTER], eax
+    call linux_copy_open_name_to_cwd
+    xor eax, eax
+    ret
+
+.root:
+    mov dword [esi + PROC_LINUX_CWD_CLUSTER], 0
+    call linux_clear_cwd_name
+    xor eax, eax
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+.enoent:
+    mov eax, -ERRNO_ENOENT
+    ret
+
+.enotdir:
+    mov eax, -ERRNO_ENOTDIR
+    ret
+
+.eio:
+    mov eax, -ERRNO_EIO
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_find_root_dir_name_by_cluster:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [linux_relative_fat_dir_arg], eax
+    xor ebx, ebx
+
+.sector_loop:
+    cmp ebx, [fat_root_sectors]
+    jae .fail
+    mov esi, ebx
+    shl esi, 9
+    add esi, fat_root_cache
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .fail
+    cmp byte [esi], 0xe5
+    je .next_entry
+    mov al, [esi + 11]
+    test al, FAT_ATTR_VOLUME_ID
+    jnz .next_entry
+    test al, FAT_ATTR_DIRECTORY
+    jz .next_entry
+    movzx eax, word [esi + 26]
+    cmp eax, [linux_relative_fat_dir_arg]
+    jne .next_entry
+    mov edi, fat_open_name_buffer
+    mov ecx, 11
+    cld
+    rep movsb
+    clc
+    jmp .done
+
+.next_entry:
+    add esi, 32
+    loop .entry_loop
+    inc ebx
+    jmp .sector_loop
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+linux_sys_fchdir:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .einval
+    cmp dword [esi + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .einval
+    call fd_lookup
+    jc .ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    jne .enotdir
+    mov edx, [fd_indices + eax * 4]
+    cmp edx, LINUX_SYNTHETIC_DIR_CLUSTER
+    jae .einval
+    mov esi, [current_process_ptr]
+    cmp edx, 2
+    jae .subdir
+    mov dword [esi + PROC_LINUX_CWD_CLUSTER], 0
+    call linux_clear_cwd_name
+    xor eax, eax
+    ret
+
+.subdir:
+    mov eax, edx
+    call linux_find_root_dir_name_by_cluster
+    jc .enoent
+    mov esi, [current_process_ptr]
+    mov [esi + PROC_LINUX_CWD_CLUSTER], edx
+    call linux_copy_open_name_to_cwd
+    xor eax, eax
+    ret
+
+.ebadf:
+    mov eax, -ERRNO_EBADF
+    ret
+
+.enotdir:
+    mov eax, -ERRNO_ENOTDIR
+    ret
+
+.enoent:
+    mov eax, -ERRNO_ENOENT
+    ret
+
+.einval:
+    mov eax, -ERRNO_EINVAL
+    ret
+
+linux_sys_getcwd:
+    cmp ebx, 0
+    je .efault
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .efault
+    cmp dword [esi + PROC_LINUX_CWD_CLUSTER], 2
+    jae .subdir
+    cmp ecx, 2
+    jb .erange
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, 2
+    call user_range_validate
+    jc .efault
+    mov edi, [syscall_ptr_arg]
+    mov byte [edi], '/'
+    mov byte [edi + 1], 0
+    mov eax, 2
+    ret
+
+.subdir:
+    cmp ecx, 14
+    jb .erange
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, 14
+    call user_range_validate
+    jc .efault
+    mov edi, [syscall_ptr_arg]
+    mov byte [edi], '/'
+    inc edi
+    lea esi, [esi + PROC_LINUX_CWD_NAME83]
+    xor edx, edx
+    mov ecx, 8
+
+.base_loop:
+    cmp ecx, 0
+    je .base_done
+    lodsb
+    cmp al, ' '
+    je .base_done
+    mov [edi], al
+    inc edi
+    inc edx
+    dec ecx
+    jmp .base_loop
+
+.base_done:
+    lea esi, [esi + ecx]
+    cmp byte [esi], ' '
+    je .finish_subdir
+    mov byte [edi], '.'
+    inc edi
+    inc edx
+    mov ecx, 3
+
+.ext_loop:
+    cmp ecx, 0
+    je .finish_subdir
+    lodsb
+    cmp al, ' '
+    je .finish_subdir
+    mov [edi], al
+    inc edi
+    inc edx
+    dec ecx
+    jmp .ext_loop
+
+.finish_subdir:
+    mov byte [edi], 0
+    mov eax, edx
+    add eax, 2
+    ret
+
+.efault:
+    mov eax, -ERRNO_EFAULT
+    ret
+
+.erange:
+    mov eax, -ERRNO_ERANGE
+    ret
+
+%else
 linux_sys_getcwd:
     cmp ebx, 0
     je .efault
@@ -29374,6 +29802,7 @@ linux_sys_getcwd:
 .erange:
     mov eax, -ERRNO_ERANGE
     ret
+%endif
 
 linux_sys_nanosleep_ticks:
     cmp ebx, 0
@@ -30258,6 +30687,21 @@ linux_sys_open_directory:
 %endif
     call linux_path_is_synthetic_lib_dir
     jnc .bind_synthetic
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    call linux_find_relative_fat_entry
+    jc .not_relative_fat_dir
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .enotdir
+    movzx eax, word [fat_found_first_cluster]
+    cmp eax, 2
+    jb .eio
+    mov [linux_dir_cluster_arg], eax
+    jmp .bind
+
+.not_relative_fat_dir:
+    cmp dword [linux_relative_fat_dir_missing], 0
+    jne .enoent
+%endif
     call fat_user_path_is_root
     jnc .bind_root
     call fat_parse_user_root83
@@ -32963,6 +33407,19 @@ linux_stat_path_common:
     jnc .dev_urandom
     call linux_path_is_proc_self_exe
     jnc .proc_self_exe
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    call linux_find_relative_fat_entry
+    jc .not_relative_fat
+    movzx eax, word [fat_found_first_cluster]
+    mov [stat_inode_arg], eax
+    mov eax, [fat_found_size]
+    call fat_found_mode
+    jmp .found
+
+.not_relative_fat:
+    cmp dword [linux_relative_fat_dir_missing], 0
+    jne .enoent
+%endif
 %ifdef LINUX_SYNTHETIC_FILE_SMOKE
     call linux_path_get_synthetic_file
     jnc .synthetic_file
@@ -33173,6 +33630,8 @@ linux_fstat64_common:
     cmp byte [fd_kinds + eax], FD_KIND_DIRECTORY
     jne .ebadf
     mov edx, [fd_indices + eax * 4]
+    cmp edx, 0
+    je .directory_root_inode
 %ifdef LINUX_PROC_SYNTHETIC_SMOKE
     cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .directory_proc_inode
@@ -33188,6 +33647,10 @@ linux_fstat64_common:
     xor eax, eax
     mov edx, STAT_MODE_READONLY_DIR
     jmp .fill
+
+.directory_root_inode:
+    mov edx, 2
+    jmp .directory_inode_ready
 
 %ifdef LINUX_PROC_SYNTHETIC_SMOKE
 .directory_proc_inode:
@@ -34474,6 +34937,20 @@ syscall_handler:
 
 .open_synthetic_dir_skip:
     pop ebx
+    mov eax, [current_process_ptr]
+    cmp eax, 0
+    je .open_check_primary_asset
+    cmp dword [eax + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .open_check_primary_asset
+    mov eax, [syscall_open_flags]
+    test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
+    jnz .open_check_primary_asset
+    call fat_user_path_is_root
+    jc .open_check_primary_asset
+    mov dword [linux_dir_cluster_arg], 0
+    jmp .open_linux_directory_bind
+
+.open_check_primary_asset:
     mov eax, ebx
     mov ebx, user_path_primary_asset_end - user_path_primary_asset
     mov edi, user_path_primary_asset
@@ -34489,6 +34966,23 @@ syscall_handler:
     jc .bad_syscall_emfile
     mov byte [fd_kinds + eax], FD_KIND_DIRECTORY
     mov dword [fd_indices + eax * 4], LINUX_SYNTHETIC_DIR_CLUSTER
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    push eax
+    mov eax, user_io_open_count
+    call user_io_increment_current
+    pop eax
+    add eax, USER_FD_BASE
+    jmp .return
+
+.open_linux_directory_bind:
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_DIRECTORY
+    mov edx, [linux_dir_cluster_arg]
+    mov [fd_indices + eax * 4], edx
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_file_sizes + eax * 4], 0
     mov edx, [syscall_open_flags]
@@ -34766,6 +35260,12 @@ syscall_handler:
     jmp .open_writable_ready
 
 .open_generic_try_subdir_readonly:
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    call linux_find_relative_fat_entry
+    jnc .open_generic_relative_found
+    cmp dword [linux_relative_fat_dir_missing], 0
+    jne .bad_syscall_enoent
+%endif
     call fat_parse_user_subdir_file83
     jc .open_generic_parse_root83
     mov edi, fat_subdir_name_buffer
@@ -34780,10 +35280,38 @@ syscall_handler:
     call fat_find_subdir_entry
     jc .bad_syscall_enoent
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
-    jnz .bad_syscall_eisdir
+    jz .open_generic_subdir_readonly_file
+    mov eax, [current_process_ptr]
+    cmp eax, 0
+    je .bad_syscall_eisdir
+    cmp dword [eax + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .bad_syscall_eisdir
+    movzx eax, word [fat_found_first_cluster]
+    cmp eax, 2
+    jb .bad_syscall_eio
+    mov [linux_dir_cluster_arg], eax
+    jmp .open_linux_directory_bind
+
+.open_generic_subdir_readonly_file:
     test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
     jz .open_generic_found_writable
     jmp .open_generic_bind_readonly
+
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+.open_generic_relative_found:
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .open_generic_bind_readonly
+    mov eax, [current_process_ptr]
+    cmp eax, 0
+    je .bad_syscall_eisdir
+    cmp dword [eax + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .bad_syscall_eisdir
+    movzx eax, word [fat_found_first_cluster]
+    cmp eax, 2
+    jb .bad_syscall_eio
+    mov [linux_dir_cluster_arg], eax
+    jmp .open_linux_directory_bind
+%endif
 
 .open_generic_bind_readonly:
     call fd_alloc
@@ -34826,7 +35354,22 @@ syscall_handler:
 
 .open_generic_found:
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .open_generic_found_file
+    mov eax, [current_process_ptr]
+    cmp eax, 0
+    je .bad_syscall_eisdir
+    cmp dword [eax + PROC_PERSONALITY], PERSONALITY_LINUX
+    jne .bad_syscall_eisdir
+    mov eax, [syscall_open_flags]
+    test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
     jnz .bad_syscall_eisdir
+    movzx eax, word [fat_found_first_cluster]
+    cmp eax, 2
+    jb .bad_syscall_eio
+    mov [linux_dir_cluster_arg], eax
+    jmp .open_linux_directory_bind
+
+.open_generic_found_file:
     call fat_open_name_is_protected
     jc .open_generic_found_protected
     test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
@@ -37218,6 +37761,10 @@ syscall_handler:
 ; syscall bodies; every other Linux syscall remains traced and returns -ENOSYS.
 .linux_dispatch:
     call linux_syscall_note_enter
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    mov dword [linux_relative_fat_dir_valid], 0
+    mov dword [linux_relative_fat_dir_missing], 0
+%endif
     cmp eax, LINUX_SYS_READ
     je .read
     cmp eax, LINUX_SYS_FORK
@@ -37234,6 +37781,10 @@ syscall_handler:
     je .exit
     cmp eax, LINUX_SYS_EXECVE
     je .exec
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp eax, LINUX_SYS_CHDIR
+    je .linux_chdir
+%endif
     cmp eax, LINUX_SYS_TIME
     je .linux_time
     cmp eax, LINUX_SYS_LSEEK
@@ -37288,6 +37839,10 @@ syscall_handler:
     je .linux_mprotect
     cmp eax, LINUX_SYS_GETPGID
     je .linux_getpgid
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp eax, LINUX_SYS_FCHDIR
+    je .linux_fchdir
+%endif
     cmp eax, LINUX_SYS_LLSEEK
     je .linux_llseek
     cmp eax, LINUX_SYS_SELECT
@@ -37454,6 +38009,17 @@ syscall_handler:
     cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .linux_openat_dir_relative_proc
 %endif
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp edx, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    jae .linux_openat_dir_relative_bad_pop
+    cmp edx, 2
+    jb .linux_openat_dir_relative_bad_pop
+    mov [linux_relative_fat_dir_arg], edx
+    mov dword [linux_relative_fat_dir_valid], 1
+    pop esi
+    pop edx
+    jmp .linux_openat_dir
+%endif
     jmp .linux_openat_dir_relative_bad_pop
 
 .linux_openat_dir_relative_generic:
@@ -37511,6 +38077,17 @@ syscall_handler:
 %ifdef LINUX_PROC_SYNTHETIC_SMOKE
     cmp edx, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .linux_openat_relative_proc
+%endif
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp edx, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    jae .linux_openat_relative_bad_pop
+    cmp edx, 2
+    jb .linux_openat_relative_bad_pop
+    mov [linux_relative_fat_dir_arg], edx
+    mov dword [linux_relative_fat_dir_valid], 1
+    pop esi
+    pop edx
+    jmp .linux_openat_args
 %endif
     jmp .linux_openat_relative_bad_pop
 
@@ -37579,6 +38156,15 @@ syscall_handler:
 %ifdef LINUX_PROC_SYNTHETIC_SMOKE
     cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .linux_faccessat_relative_proc
+%endif
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    jae .bad_syscall_enoent
+    cmp eax, 2
+    jb .bad_syscall_enoent
+    mov [linux_relative_fat_dir_arg], eax
+    mov dword [linux_relative_fat_dir_valid], 1
+    jmp .linux_faccessat_args
 %endif
     jmp .bad_syscall_enoent
 
@@ -37658,6 +38244,15 @@ syscall_handler:
     cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .linux_fstatat64_relative_proc
 %endif
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    jae .bad_syscall_enoent
+    cmp eax, 2
+    jb .bad_syscall_enoent
+    mov [linux_relative_fat_dir_arg], eax
+    mov dword [linux_relative_fat_dir_valid], 1
+    jmp .linux_fstatat64_args
+%endif
     jmp .bad_syscall_enoent
 
 .linux_fstatat64_relative_generic:
@@ -37717,6 +38312,15 @@ syscall_handler:
     cmp eax, LINUX_SYNTHETIC_PROC_DIR_CLUSTER
     je .linux_statx_relative_proc
 %endif
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+    cmp eax, LINUX_SYNTHETIC_PROC_PID_DIR_CLUSTER
+    jae .bad_syscall_enoent
+    cmp eax, 2
+    jb .bad_syscall_enoent
+    mov [linux_relative_fat_dir_arg], eax
+    mov dword [linux_relative_fat_dir_valid], 1
+    jmp .linux_statx_args
+%endif
     jmp .bad_syscall_enoent
 
 .linux_statx_relative_generic:
@@ -37769,6 +38373,16 @@ syscall_handler:
 .linux_gettimeofday:
     call linux_sys_gettimeofday
     jmp .return
+
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+.linux_chdir:
+    call linux_sys_chdir
+    jmp .return
+
+.linux_fchdir:
+    call linux_sys_fchdir
+    jmp .return
+%endif
 
 .linux_getcwd:
     call linux_sys_getcwd
@@ -49194,6 +49808,9 @@ linux_vfork_child_probe_elf_name_83 db "VFORKCH ELF"
 linux_vfork_exit_group_probe_elf_name_83 db "VFORKXGPELF"
 linux_vfork_exit_group_child_elf_name_83 db "VFORKXG ELF"
 linux_dir_elf_name_83 db "DIR     ELF"
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+linux_cwd_dirfd_elf_name_83 db "CWDDIRFDELF"
+%endif
 linux_fd_elf_name_83 db "FD      ELF"
 linux_dev_null_elf_name_83 db "DEVNULL ELF"
 linux_llseek_elf_name_83 db "LLSEEK  ELF"
@@ -49266,6 +49883,9 @@ exec_path_linux_vfork_child_probe db "/BIN/VFORKCH.ELF", 0
 exec_path_linux_vfork_exit_group_probe db "/BIN/VFORKXGP.ELF", 0
 exec_path_linux_vfork_exit_group_child db "/BIN/VFORKXG.ELF", 0
 exec_path_linux_dir db "/BIN/DIR.ELF", 0
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+exec_path_linux_cwd_dirfd db "/BIN/CWDDIRFD.ELF", 0
+%endif
 exec_path_linux_fd db "/BIN/FD.ELF", 0
 exec_path_linux_dev_null db "/BIN/DEVNULL.ELF", 0
 exec_path_linux_llseek db "/BIN/LLSEEK.ELF", 0
@@ -49738,6 +50358,10 @@ busybox_arg_script db "echo busybox-ok", 0
 busybox_arg_ls db "ls", 0
 busybox_arg_bin_dir db "/BIN", 0
 %endif
+%ifdef LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
+busybox_arg_ls_root db "ls", 0
+busybox_arg_root_dir db "/", 0
+%endif
 %ifdef LINUX_M1_BUSYBOX_CAT_SMOKE
 busybox_arg_cat db "cat", 0
 %endif
@@ -50053,7 +50677,7 @@ process_kernel:
     dd 0, 0
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50065,7 +50689,7 @@ process_user_probe:
     dd process_user_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_preempt_probe:
     dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50077,7 +50701,7 @@ process_preempt_probe:
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_payload:
     dd 2, USER_KIND_GENERIC, PROC_STATE_READY
     dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
@@ -50089,7 +50713,7 @@ process_payload:
     dd process_payload_heap_bitmap, PAYLOAD_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_generic0:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50101,7 +50725,7 @@ process_generic0:
     dd process_generic0_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_generic1:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50113,7 +50737,7 @@ process_generic1:
     dd process_generic1_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_generic2:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50125,7 +50749,7 @@ process_generic2:
     dd process_generic2_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_generic3:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -50137,7 +50761,7 @@ process_generic3:
     dd process_generic3_heap_bitmap, USER_HEAP_PAGE_COUNT
     dd PERSONALITY_NATIVE
     dd 0
-    times 14 dd 0
+    times (PROCESS_RECORD_BYTES - PROC_LINUX_SET_TID_ADDR) / 4 dd 0
 process_generic_exec_slots:
     dd process_generic0, process_generic1, process_generic2, process_generic3
 align 4
@@ -51265,6 +51889,11 @@ align 4
 linux_synthetic_file_id_arg dd 0
 %endif
 linux_relative_synthetic_dir_arg dd 0
+%ifdef LINUX_M1_CWD_DIRFD_SMOKE
+linux_relative_fat_dir_arg dd 0
+linux_relative_fat_dir_valid dd 0
+linux_relative_fat_dir_missing dd 0
+%endif
 linux_readlink_user_ptr dd 0
 linux_readlink_source_len dd 0
 align 4

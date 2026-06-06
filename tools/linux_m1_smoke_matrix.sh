@@ -10,7 +10,7 @@ SMOKE_QEMU_TIMEOUT_VALUE=${SMOKE_QEMU_TIMEOUT:-45}
 BASE_NASMFLAGS="-D LINUX_M1_SMOKE"
 EXTRA_NASMFLAGS=${LINUX_M1_EXTRA_NASMFLAGS:-}
 DEFAULT_CASES="hello auxv tls startup exec-limits dir fd pipe fork clone3"
-ALL_CASES="hello auxv tls startup exec-limits dir fd pipe fork clone3 proc-exe tmpdir dev-null llseek time futex thread rseq busybox-echo busybox-true busybox-sh busybox-ls busybox-cat busybox-cp busybox-grep busybox-sleep busybox-ps"
+ALL_CASES="hello auxv tls startup exec-limits dir cwd-dirfd fd pipe fork clone3 proc-exe tmpdir dev-null llseek time futex thread rseq busybox-echo busybox-true busybox-sh busybox-ls busybox-ls-root busybox-cat busybox-cp busybox-grep busybox-sleep busybox-ps"
 
 usage() {
     cat <<'EOF'
@@ -40,6 +40,7 @@ log() {
 normalize_case() {
     case "$1" in
         proc-self-exe) printf '%s\n' "proc-exe" ;;
+        cwddirfd) printf '%s\n' "cwd-dirfd" ;;
         devnull) printf '%s\n' "dev-null" ;;
         busybox|busybox-echo) printf '%s\n' "busybox-echo" ;;
         *) printf '%s\n' "$1" ;;
@@ -108,6 +109,15 @@ case_config() {
             CASE_ASSETS=/BIN/DIR.ELF
             CASE_SERIAL="dir ok"
             CASE_EXIT=0000000F
+            CASE_STATUS_FIELDS="$CASE_STATUS_FIELDS argc=00000001 argvsrc=00000001"
+            ;;
+        cwd-dirfd)
+            CASE_SELECTOR=LINUX_M1_CWD_DIRFD_SMOKE
+            CASE_FLAGS="-D $CASE_SELECTOR"
+            CASE_PATH=/BIN/CWDDIRFD.ELF
+            CASE_ASSETS=/BIN/CWDDIRFD.ELF
+            CASE_SERIAL="cwd dirfd ok"
+            CASE_EXIT=00000029
             CASE_STATUS_FIELDS="$CASE_STATUS_FIELDS argc=00000001 argvsrc=00000001"
             ;;
         fd)
@@ -250,6 +260,15 @@ case_config() {
             CASE_PATH=/BIN/BUSYBOX.ELF
             CASE_ASSETS=/BIN/BUSYBOX.ELF
             CASE_SERIAL="HELLO.ELF"
+            CASE_EXIT=00000000
+            CASE_STATUS_FIELDS="$CASE_STATUS_FIELDS argc=00000003 argvsrc=00000002"
+            ;;
+        busybox-ls-root)
+            CASE_SELECTOR=LINUX_M1_BUSYBOX_LS_ROOT_SMOKE
+            CASE_FLAGS="-D $CASE_SELECTOR"
+            CASE_PATH=/BIN/BUSYBOX.ELF
+            CASE_ASSETS=/BIN/BUSYBOX.ELF
+            CASE_SERIAL="BIN"
             CASE_EXIT=00000000
             CASE_STATUS_FIELDS="$CASE_STATUS_FIELDS argc=00000003 argvsrc=00000002"
             ;;

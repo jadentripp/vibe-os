@@ -72,10 +72,24 @@ esac
 set_bool CONFIG_STATIC y
 set_bool CONFIG_CAT y
 set_bool CONFIG_CP y
+set_bool CONFIG_ECHO y
 set_bool CONFIG_GREP y
+set_bool CONFIG_HEAD y
+set_bool CONFIG_LN y
 set_bool CONFIG_LS y
+set_bool CONFIG_MKDIR y
+set_bool CONFIG_MV y
+set_bool CONFIG_PRINTF y
+set_bool CONFIG_PWD y
 set_bool CONFIG_PS y
+set_bool CONFIG_RM y
 set_bool CONFIG_SLEEP y
+set_bool CONFIG_STAT y
+set_bool CONFIG_TAIL y
+set_bool CONFIG_TEST y
+set_bool CONFIG_TEST1 y
+set_bool CONFIG_TRUE y
+set_bool CONFIG_WC y
 set_bool CONFIG_ASH y
 set_bool CONFIG_SH_IS_ASH y
 set_bool CONFIG_FEATURE_SH_STANDALONE y
@@ -83,7 +97,9 @@ set_bool CONFIG_FEATURE_SH_STANDALONE y
 set_bool CONFIG_FEATURE_CP_LONG_OPTIONS n
 set_bool CONFIG_FEATURE_CP_REFLINK n
 set_bool CONFIG_FEATURE_GREP_CONTEXT n
+set_bool CONFIG_FEATURE_FANCY_HEAD n
 set_bool CONFIG_FEATURE_FANCY_SLEEP n
+set_bool CONFIG_FEATURE_FANCY_TAIL n
 set_bool CONFIG_FEATURE_LS_COLOR n
 set_bool CONFIG_FEATURE_LS_COLOR_IS_DEFAULT n
 set_bool CONFIG_FEATURE_LS_FILETYPES n
@@ -98,6 +114,11 @@ set_bool CONFIG_FEATURE_PS_LONG n
 set_bool CONFIG_FEATURE_PS_TIME n
 set_bool CONFIG_FEATURE_PS_UNUSUAL_SYSTEMS n
 set_bool CONFIG_FEATURE_PS_WIDE n
+set_bool CONFIG_FEATURE_STAT_FILESYSTEM n
+set_bool CONFIG_FEATURE_STAT_FORMAT n
+set_bool CONFIG_TEST2 n
+set_bool CONFIG_FEATURE_TEST_64 n
+set_bool CONFIG_FEATURE_WC_LARGE n
 
 cc="$zig_bin cc -target x86-linux-musl"
 target_ar="$zig_bin ar"
